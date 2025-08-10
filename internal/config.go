@@ -8,13 +8,13 @@ import (
 )
 
 type BotConfig struct {
-	ID    string `json:"id"`
-	Token string `json:"token"`
+	ID    string
+	Token string
 }
 
 type Configs struct {
-	DefaultBotID string               `json:"default_bot_id"`
-	Bots         map[string]BotConfig `json:"bots"`
+	DefaultBotID string
+	Bots         map[string]BotConfig
 }
 
 func getConfigPath() (string, error) {
