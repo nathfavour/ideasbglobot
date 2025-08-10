@@ -1,40 +1,18 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
-
-func OllamaChat(prompt string) (string, error) {
-	// Mock implementation for OllamaChat
-	log.Printf("OllamaChat prompt: %s", prompt)
-	return "This is a response from the OllamaChat.", nil
-}
-
-func EnsureAutoReplies() {
-	// Mock implementation for EnsureAutoReplies
-	log.Println("Ensuring auto replies are set up.")
-}
-
-func SaveMessage(msg Message) {
-	// Mock implementation for SaveMessage
-	log.Printf("Saving message: %+v", msg)
-}
-
-type Message struct {
-	ChatID   int64
-	UserID   int
-	Username string
-	Text     string
-	IsBot    bool
-	Type     string
-	Created  time.Time
-}
 
 func runShellCommand(cmdline string) (string, error) {
 	parts := strings.Fields(cmdline)
@@ -212,9 +190,4 @@ func getAutoReply(category string) string {
 		replies = autoReplies["default"]
 	}
 	return replies[len(replies)%3]
-}
-	}
-	cmd := exec.Command(parts[0], parts[1:]...)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
 }
