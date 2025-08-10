@@ -1,13 +1,11 @@
 package internal
 
-
 import (
 	"database/sql"
+	_ "github.com/mattn/go-sqlite3"
 	"os"
 	"path/filepath"
 	"time"
-	_ "github.com/mattn/go-sqlite3"
-)
 )
 
 var DB *sql.DB
@@ -28,8 +26,9 @@ func EnsureDatabase() error {
 	dir := filepath.Dir(dbPath)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0700); err != nil {
-	return err
-}
+			return err
+		}
+	}
 	return InitDatabase()
 }
 
