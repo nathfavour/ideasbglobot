@@ -7,12 +7,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/nathfavour/ideasbglobot/internal"
 )
 
 func OllamaChat(prompt string) (string, error) {
-	cfg, err := internal.EnsureConfigFile()
+	cfg, err := EnsureConfigFile()
 	if err != nil {
 		return "", err
 	}

@@ -34,7 +34,7 @@ func GetConfigPath() (string, error) {
 }
 
 func EnsureConfigFile() (*Configs, error) {
-	configPath, err := getConfigPath()
+	configPath, err := GetConfigPath()
 	if err != nil {
 		return nil, err
 	}

@@ -60,6 +60,7 @@ var ollamaModelSetCmd = &cobra.Command{
 			return
 		}
 		cfg.DefaultAIModel = ollamaModel
+		fmt.Printf("DEBUG: cfg.DefaultAIModel before save: %s\n", cfg.DefaultAIModel)
 		configPath, err := internal.GetConfigPath()
 		if err != nil {
 			fmt.Printf("Error getting config path: %v\n", err)

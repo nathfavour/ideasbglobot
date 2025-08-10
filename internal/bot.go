@@ -87,7 +87,7 @@ func StartBot(token string) {
 						model := parts[i+4]
 						botConfig.DefaultAIModel = model
 						// Save config live
-						configPath, _ := getConfigPath()
+						configPath, _ := GetConfigPath()
 						SaveConfig(configPath, botConfig)
 						reply := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ Default AI model set to '%s' (will be used for next /ai)", model))
 						bot.Send(reply)

@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/user"
-	"path/filepath"
 	"strings"
 
+	"github.com/nathfavour/ideasbglobot/internal"
 	"github.com/spf13/cobra"
 )
 
@@ -39,20 +38,20 @@ var botAddCmd = &cobra.Command{
 		token = strings.TrimSpace(token)
 
 		// Load config
-		cfgPath, err := getConfigPath()
+		cfgPath, err := internal.GetConfigPath()
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			return
 		}
-		cfg, err := loadConfig(cfgPath)
+		cfg, err := internal.EnsureConfigFile()
 		if err != nil {
 			fmt.Printf("Error loading config: %v\n", err)
 			return
 		}
 		if cfg.Bots == nil {
-			cfg.Bots = map[string]BotConfig{}
+			cfg.Bots = map[string]internal.BotConfig{}
 		}
-		cfg.Bots[id] = BotConfig{ID: id, Token: token}
+		cfg.Bots[id] = internal.BotConfig{ID: id, Token: token}
 
 		fmt.Print("Set this bot as default? (y/N): ")
 		setDefault, _ := reader.ReadString('\n')
@@ -62,7 +61,7 @@ var botAddCmd = &cobra.Command{
 		}
 
 		// Save config
-		if err := saveConfig(cfgPath, cfg); err != nil {
+		if err := internal.SaveConfig(cfgPath, cfg); err != nil {
 			fmt.Printf("Error saving config: %v\n", err)
 			return
 		}
@@ -70,44 +69,24 @@ var botAddCmd = &cobra.Command{
 	},
 }
 
-func getConfigPath() (string, error) {
-	usr, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(usr.HomeDir, ".ideasbglobe")
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			return "", err
-		}
-	}
-	return filepath.Join(dir, "configs.json"), nil
-}
+// getConfigPath is now in internal/config.go as GetConfigPath
 
-type BotConfig struct {
-	ID    string `json:"id"`
-	Token string `json:"token"`
-}
+// Use BotConfig and Configs from internal/config.go
 
-type Configs struct {
-	DefaultBotID string               `json:"default_bot_id"`
-	Bots         map[string]BotConfig `json:"bots"`
-}
-
-func loadConfig(path string) (*Configs, error) {
+func loadConfig(path string) (*internal.Configs, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	var cfg Configs
+	var cfg internal.Configs
 	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
 }
 
-func saveConfig(path string, cfg *Configs) error {
+func saveConfig(path string, cfg *internal.Configs) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
