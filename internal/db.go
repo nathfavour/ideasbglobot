@@ -1,12 +1,13 @@
 package internal
 
+
 import (
 	"database/sql"
 	"os"
 	"path/filepath"
 	"time"
-
 	_ "github.com/mattn/go-sqlite3"
+)
 )
 
 var DB *sql.DB

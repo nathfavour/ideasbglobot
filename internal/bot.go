@@ -14,16 +14,6 @@ import (
 	"github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func runShellCommand(cmdline string) (string, error) {
-	parts := strings.Fields(cmdline)
-	if len(parts) == 0 {
-		return "", fmt.Errorf("no command provided")
-	}
-	cmd := exec.Command(parts[0], parts[1:]...)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
-}
-
 func StartBot(token string) {
 	EnsureAutoReplies()
 
@@ -125,7 +115,15 @@ func StartBot(token string) {
 	}
 }
 
-// --- Helper functions (move from main.go as needed) ---
+func runShellCommand(cmdline string) (string, error) {
+	parts := strings.Fields(cmdline)
+	if len(parts) == 0 {
+		return "", fmt.Errorf("no command provided")
+	}
+	cmd := exec.Command(parts[0], parts[1:]...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
 
 func detectMessageType(text string) string {
 	text = strings.ToLower(text)
@@ -162,7 +160,6 @@ func buildAIPrompt(text string, msgType string) string {
 }
 
 func getAutoReply(category string) string {
-	// For MVP, just use a static set as before, or load from auto.json if desired
 	autoReplies := map[string][]string{
 		"issue": {
 			"🐛 I see you've mentioned an issue. Can you provide more details?",
@@ -190,4 +187,22 @@ func getAutoReply(category string) string {
 		replies = autoReplies["default"]
 	}
 	return replies[len(replies)%3]
+}
+
+// RunDefaultBot starts the default bot from config
+func RunDefaultBot(cfg *Configs) {
+	if cfg == nil {
+		log.Fatal("Config is nil")
+	}
+	if cfg.DefaultBotID == "" {
+		log.Fatal("No default bot ID set in config")
+	}
+	botCfg, ok := cfg.Bots[cfg.DefaultBotID]
+	if !ok {
+		log.Fatalf("No bot config found for default bot ID: %s", cfg.DefaultBotID)
+	}
+	if botCfg.Token == "" {
+		log.Fatal("No token found for default bot")
+	}
+	StartBot(botCfg.Token)
 }

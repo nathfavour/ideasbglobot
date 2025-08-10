@@ -54,5 +54,3 @@ func GenerateAutoReplies() {
 	encoder.Encode(autoReplies)
 	log.Println("Generated auto.json with default replies")
 }
-	log.Println("Generated auto.json with default replies")
-}
