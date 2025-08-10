@@ -1,14 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -105,11 +110,9 @@ func runTelegramBot(token string) {
 	bot.Debug = true
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
-	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -118,10 +121,8 @@ func runTelegramBot(token string) {
 		cancel()
 	}()
 
-	// Configure updates
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
-
 	updates := bot.GetUpdatesChan(u)
 
 	log.Println("Bot started. Listening for messages...")
@@ -138,7 +139,6 @@ func runTelegramBot(token string) {
 				continue
 			}
 
-			// Log all incoming messages
 			username := update.Message.From.UserName
 			if username == "" {
 				username = update.Message.From.FirstName
@@ -147,31 +147,82 @@ func runTelegramBot(token string) {
 			log.Printf("[MESSAGE] Chat: %d, User: %s, Text: %s",
 				update.Message.Chat.ID, username, update.Message.Text)
 
-			// Handle commands
 			if update.Message.IsCommand() {
 				command := update.Message.Command()
 				args := update.Message.CommandArguments()
-
 				log.Printf("[COMMAND] /%s %s", command, args)
 
-				// Echo command back
+				// Example: run shell command if /run
+				if command == "run" && args != "" {
+					out, err := runShellCommand(args)
+					resp := ""
+					if err != nil {
+						resp = fmt.Sprintf("❌ Error: %v", err)
+					} else {
+						resp = fmt.Sprintf("💻 Output:\n%s", out)
+					}
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, resp)
+					bot.Send(msg)
+					continue
+				}
+
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 					fmt.Sprintf("✅ Command received: /%s %s", command, args))
-
-				if _, err := bot.Send(msg); err != nil {
-					log.Printf("Error sending message: %v", err)
-				}
+				bot.Send(msg)
 			} else {
-				// Echo regular messages
-				msg := tgbotapi.NewMessage(update.Message.Chat.ID,
-					fmt.Sprintf("📝 Message received: %s", update.Message.Text))
-
-				if _, err := bot.Send(msg); err != nil {
-					log.Printf("Error sending message: %v", err)
+				// Use Ollama to understand and reply
+				reply, err := ollamaChat(update.Message.Text)
+				if err != nil {
+					reply = fmt.Sprintf("Ollama error: %v", err)
 				}
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
+				bot.Send(msg)
 			}
 		}
 	}
+}
+
+// Call local Ollama API for chat completion
+func ollamaChat(prompt string) (string, error) {
+	ollamaURL := "http://localhost:11434/api/generate"
+	payload := `{"model":"llama3","prompt":` + jsonString(prompt) + `,"stream":false}`
+	req, err := http.NewRequest("POST", ollamaURL, bytes.NewBuffer([]byte(payload)))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	// Ollama returns JSON with a "response" field
+	type ollamaResp struct {
+		Response string `json:"response"`
+	}
+	var o ollamaResp
+	if err := json.Unmarshal(body, &o); err != nil {
+		return "", fmt.Errorf("ollama response: %s", string(body))
+	}
+	return strings.TrimSpace(o.Response), nil
+}
+
+// Helper to escape JSON string
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+// Run a shell command and return output
+func runShellCommand(cmdline string) (string, error) {
+	parts := strings.Fields(cmdline)
+	if len(parts) == 0 {
+		return "", fmt.Errorf("no command provided")
+	}
+	cmd := exec.Command(parts[0], parts[1:]...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 func main() {
