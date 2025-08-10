@@ -20,6 +20,12 @@ func main() {
 				fmt.Printf("Error initializing config: %v\n", err)
 				os.Exit(1)
 			}
+
+			if err := internal.EnsureDatabase(); err != nil {
+				fmt.Printf("Failed to initialize database: %v\n", err)
+				os.Exit(1)
+			}
+
 			internal.RunDefaultBot(cfg)
 		},
 	}

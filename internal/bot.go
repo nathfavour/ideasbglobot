@@ -2,17 +2,22 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
+
+// Global config cache for live updates
+var botConfig *Configs
 
 func StartBot(token string) {
 	EnsureAutoReplies()
@@ -49,7 +54,6 @@ func StartBot(token string) {
 			log.Println("Bot stopped")
 			bot.StopReceivingUpdates()
 			return
-
 		case update := <-updates:
 			if update.Message == nil {
 				continue
@@ -74,6 +78,47 @@ func StartBot(token string) {
 
 			log.Printf("[%s] Chat: %d, User: %s, Text: %s",
 				strings.ToUpper(msgType), update.Message.Chat.ID, username, update.Message.Text)
+
+			// AI model set command: /ai ollama model set <modelname>
+			if matched, _ := regexp.MatchString(`/ai ollama model set [a-zA-Z0-9_\-]+`, update.Message.Text); matched {
+				parts := strings.Fields(update.Message.Text)
+				for i := 0; i < len(parts)-3; i++ {
+					if parts[i] == "/ai" && parts[i+1] == "ollama" && parts[i+2] == "model" && parts[i+3] == "set" {
+						model := parts[i+4]
+						botConfig.DefaultAIModel = model
+						// Save config live
+						configPath, _ := getConfigPath()
+						SaveConfig(configPath, botConfig)
+						reply := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("✅ Default AI model set to '%s' (will be used for next /ai)", model))
+						bot.Send(reply)
+						continue
+					}
+				}
+			}
+
+			// /ai anywhere in the message triggers AI reply
+			aiRe := regexp.MustCompile(`/ai(\s|$|[^a-zA-Z0-9_])`)
+			if aiRe.MatchString(update.Message.Text) {
+				prompt := botConfig.DefaultAIPrompt
+				if prompt == "" {
+					prompt = "Reply in one concise sentence. Use two only if absolutely necessary, and use as few words as possible."
+				}
+				model := botConfig.DefaultAIModel
+				if model == "" {
+					model = "llama2"
+				}
+				userMsg := update.Message.Text
+				aiPrompt := prompt + "\n\nUser message: " + userMsg
+				response, err := OllamaChatWithModel(aiPrompt, model)
+				if err != nil {
+					reply := tgbotapi.NewMessage(update.Message.Chat.ID, "[AI error] "+err.Error())
+					bot.Send(reply)
+				} else {
+					reply := tgbotapi.NewMessage(update.Message.Chat.ID, response)
+					bot.Send(reply)
+				}
+				continue
+			}
 
 			if update.Message.IsCommand() {
 				command := update.Message.Command()
@@ -139,12 +184,65 @@ func detectMessageType(text string) string {
 	}
 }
 
+// shouldRespond returns true if the message should trigger a bot reply.
 func shouldRespond(text string, chatID int64) bool {
-	botMentioned := strings.Contains(text, "@ideabglobe_bot") || strings.Contains(text, "@ideabglobe")
-	isQuestion := strings.Contains(text, "?")
-	isCommand := strings.HasPrefix(text, "/")
+	lower := strings.ToLower(text)
+	// Detect mention (case-insensitive, multiple forms)
+	botMentioned := strings.Contains(lower, "@ideabglobe_bot") || strings.Contains(lower, "@ideabglobe")
+	// Detect /command anywhere in the message (not just at the start, and not if followed by a space)
+	isCommand := false
+	// Regex: match / followed by at least one word character, not / followed by a space
+	commandRe := regexp.MustCompile(`/[a-zA-Z0-9_]+`)
+	if commandRe.MatchString(lower) {
+		isCommand = true
+	}
+	// Detect direct message
 	isDM := chatID > 0
+	// Detect question
+	isQuestion := strings.Contains(lower, "?")
+	// Detect keywords from auto-reply categories
+	if matchAutoReplyCategory(lower) != "" {
+		return true
+	}
 	return botMentioned || isDM || isQuestion || isCommand
+}
+
+// matchAutoReplyCategory returns the category if a keyword from auto.json is found in the text, else "".
+func matchAutoReplyCategory(text string) string {
+	replies := loadAutoReplies()
+	for _, ar := range replies {
+		if ar.Category == "greeting" && (strings.Contains(text, "hello") || strings.Contains(text, "hi") || strings.Contains(text, "hey")) {
+			return "greeting"
+		}
+		if ar.Category == "issue" && (strings.Contains(text, "issue") || strings.Contains(text, "bug") || strings.Contains(text, "problem") || strings.Contains(text, "error")) {
+			return "issue"
+		}
+		if ar.Category == "feature" && (strings.Contains(text, "feature") || strings.Contains(text, "enhancement") || strings.Contains(text, "request")) {
+			return "feature"
+		}
+		if ar.Category == "question" && (strings.Contains(text, "question") || strings.Contains(text, "how") || strings.Contains(text, "what") || strings.Contains(text, "why") || strings.Contains(text, "?")) {
+			return "question"
+		}
+		if ar.Category == "code" && (strings.Contains(text, "code") || strings.Contains(text, "review") || strings.Contains(text, "debug") || strings.Contains(text, "implementation")) {
+			return "code"
+		}
+	}
+	return ""
+}
+
+// loadAutoReplies loads auto.json from the app directory.
+func loadAutoReplies() []AutoReply {
+	path := GetAppDir() + "/auto.json"
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	var replies []AutoReply
+	if err := json.NewDecoder(f).Decode(&replies); err != nil {
+		return nil
+	}
+	return replies
 }
 
 func getSmartReply(text string, msgType string) (string, error) {
@@ -204,5 +302,6 @@ func RunDefaultBot(cfg *Configs) {
 	if botCfg.Token == "" {
 		log.Fatal("No token found for default bot")
 	}
+	botConfig = cfg // set global config for live updates
 	StartBot(botCfg.Token)
 }

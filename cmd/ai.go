@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/nathfavour/ideasbglobot/internal"
 )
 
 var ollamaModel string = "llama3" // default, can be changed by user
@@ -50,6 +52,24 @@ var ollamaModelSetCmd = &cobra.Command{
 		}
 		ollamaModel = models[idx-1]
 		fmt.Printf("Ollama model set to: %s\n", ollamaModel)
+
+		// Persist to config
+		cfg, err := internal.EnsureConfigFile()
+		if err != nil {
+			fmt.Printf("Error loading config: %v\n", err)
+			return
+		}
+		cfg.DefaultAIModel = ollamaModel
+		configPath, err := internal.GetConfigPath()
+		if err != nil {
+			fmt.Printf("Error getting config path: %v\n", err)
+			return
+		}
+		if err := internal.SaveConfig(configPath, cfg); err != nil {
+			fmt.Printf("Error saving config: %v\n", err)
+			return
+		}
+		fmt.Println("Model selection persisted to config.")
 	},
 }
 

@@ -13,11 +13,13 @@ type BotConfig struct {
 }
 
 type Configs struct {
-	DefaultBotID string               `json:"default_bot_id"`
-	Bots         map[string]BotConfig `json:"bots"`
+	DefaultBotID    string               `json:"default_bot_id"`
+	Bots            map[string]BotConfig `json:"bots"`
+	DefaultAIModel  string               `json:"default_ai_model"`
+	DefaultAIPrompt string               `json:"default_ai_prompt"`
 }
 
-func getConfigPath() (string, error) {
+func GetConfigPath() (string, error) {
 	usr, err := user.Current()
 	if err != nil {
 		return "", err
@@ -44,8 +46,10 @@ func EnsureConfigFile() (*Configs, error) {
 	}
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		defaultConfig := &Configs{
-			DefaultBotID: "",
-			Bots:         map[string]BotConfig{},
+			DefaultBotID:    "",
+			Bots:            map[string]BotConfig{},
+			DefaultAIModel:  "llama2",
+			DefaultAIPrompt: "Reply in one concise sentence. Use two only if absolutely necessary, and use as few words as possible.",
 		}
 		if err := SaveConfig(configPath, defaultConfig); err != nil {
 			return nil, err

@@ -8,11 +8,19 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/nathfavour/ideasbglobot/cmd"
+	"github.com/nathfavour/ideasbglobot/internal"
 )
 
 func OllamaChat(prompt string) (string, error) {
-	model := cmd.OllamaModel()
+	cfg, err := internal.EnsureConfigFile()
+	if err != nil {
+		return "", err
+	}
+	model := cfg.DefaultAIModel
+	return OllamaChatWithModel(prompt, model)
+}
+
+func OllamaChatWithModel(prompt, model string) (string, error) {
 	ollamaURL := "http://localhost:11434/api/generate"
 	payload := `{"model":` + jsonString(model) + `,"prompt":` + jsonString(prompt) + `,"stream":false}`
 	req, err := http.NewRequest("POST", ollamaURL, bytes.NewBuffer([]byte(payload)))
