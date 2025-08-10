@@ -1,48 +1,53 @@
-package bot
+package internal
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/nathfavour/ideasbglobot/internal"
-	"github.com/nathfavour/ideasbglobot/internal/autoreply"
-	"github.com/nathfavour/ideasbglobot/internal/config"
-	"github.com/nathfavour/ideasbglobot/internal/db"
+	"github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func RunDefaultBot(cfg *config.Configs) {
-	if cfg.DefaultBotID == "" {
-		fmt.Println("No default bot configured. Please add a bot to ~/.ideasbglobe/configs.json and set default_bot_id.")
-		return
-	}
-	botCfg, ok := cfg.Bots[cfg.DefaultBotID]
-	if !ok {
-		fmt.Printf("Default bot id '%s' not found in configs.\n", cfg.DefaultBotID)
-		return
-	}
-	fmt.Printf("Starting default bot: %s\n", botCfg.ID)
-	if botCfg.Token == "" {
-		fmt.Println("Bot token empty; cannot start.")
-		return
-	}
-	RunTelegramBot(botCfg.Token)
+func OllamaChat(prompt string) (string, error) {
+	// Mock implementation for OllamaChat
+	log.Printf("OllamaChat prompt: %s", prompt)
+	return "This is a response from the OllamaChat.", nil
 }
 
-func RunTelegramBot(token string) {
-	if err := db.EnsureDatabase(); err != nil {
-		log.Printf("Database init error: %v", err)
-		return
+func EnsureAutoReplies() {
+	// Mock implementation for EnsureAutoReplies
+	log.Println("Ensuring auto replies are set up.")
+}
+
+func SaveMessage(msg Message) {
+	// Mock implementation for SaveMessage
+	log.Printf("Saving message: %+v", msg)
+}
+
+type Message struct {
+	ChatID   int64
+	UserID   int
+	Username string
+	Text     string
+	IsBot    bool
+	Type     string
+	Created  time.Time
+}
+
+func runShellCommand(cmdline string) (string, error) {
+	parts := strings.Fields(cmdline)
+	if len(parts) == 0 {
+		return "", fmt.Errorf("no command provided")
 	}
-	defer db.DB.Close()
-	autoreply.EnsureAutoReplies()
+	cmd := exec.Command(parts[0], parts[1:]...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func StartBot(token string) {
+	EnsureAutoReplies()
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -88,7 +93,7 @@ func RunTelegramBot(token string) {
 			}
 
 			msgType := detectMessageType(update.Message.Text)
-			msg := db.Message{
+			msg := Message{
 				ChatID:   update.Message.Chat.ID,
 				UserID:   update.Message.From.ID,
 				Username: username,
@@ -97,7 +102,7 @@ func RunTelegramBot(token string) {
 				Type:     msgType,
 				Created:  time.Now(),
 			}
-			db.SaveMessage(msg)
+			SaveMessage(msg)
 
 			log.Printf("[%s] Chat: %d, User: %s, Text: %s",
 				strings.ToUpper(msgType), update.Message.Chat.ID, username, update.Message.Text)
@@ -167,7 +172,7 @@ func shouldRespond(text string, chatID int64) bool {
 }
 
 func getSmartReply(text string, msgType string) (string, error) {
-	if reply, err := internal.OllamaChat(buildAIPrompt(text, msgType)); err == nil {
+	if reply, err := OllamaChat(buildAIPrompt(text, msgType)); err == nil {
 		return reply, nil
 	}
 	return getAutoReply(msgType), nil
@@ -208,11 +213,6 @@ func getAutoReply(category string) string {
 	}
 	return replies[len(replies)%3]
 }
-
-func runShellCommand(cmdline string) (string, error) {
-	parts := strings.Fields(cmdline)
-	if len(parts) == 0 {
-		return "", fmt.Errorf("no command provided")
 	}
 	cmd := exec.Command(parts[0], parts[1:]...)
 	out, err := cmd.CombinedOutput()

@@ -5,8 +5,7 @@ import (
 	"os"
 
 	"github.com/nathfavour/ideasbglobot/cmd"
-	"github.com/nathfavour/ideasbglobot/internal/bot"
-	"github.com/nathfavour/ideasbglobot/internal/config"
+	"github.com/nathfavour/ideasbglobot/internal"
 	"github.com/spf13/cobra"
 )
 
@@ -16,12 +15,12 @@ func main() {
 		Short: "Automate Telegram bots, AI, and git from the CLI",
 		Run: func(cmd *cobra.Command, args []string) {
 			// Ensure all config/data/auto files are present and valid
-			cfg, err := config.EnsureConfigFile()
+			cfg, err := internal.EnsureConfigFile()
 			if err != nil {
 				fmt.Printf("Error initializing config: %v\n", err)
 				os.Exit(1)
 			}
-			bot.RunDefaultBot(cfg)
+			internal.RunDefaultBot(cfg)
 		},
 	}
 

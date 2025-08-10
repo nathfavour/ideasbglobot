@@ -5,8 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-
-	"github.com/nathfavour/ideasbglobot/internal/config"
 )
 
 type AutoReply struct {
@@ -17,7 +15,7 @@ type AutoReply struct {
 }
 
 func EnsureAutoReplies() {
-	autoRepliesPath := filepath.Join(config.GetAppDir(), "auto.json")
+	autoRepliesPath := filepath.Join(GetAppDir(), "auto.json")
 	dir := filepath.Dir(autoRepliesPath)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		_ = os.MkdirAll(dir, 0700)
@@ -36,7 +34,7 @@ func EnsureAutoReplies() {
 }
 
 func GenerateAutoReplies() {
-	autoRepliesPath := filepath.Join(config.GetAppDir(), "auto.json")
+	autoRepliesPath := filepath.Join(GetAppDir(), "auto.json")
 	autoReplies := []AutoReply{
 		{1, "greeting", "👋 Hello! I'm here to help with software engineering tasks.", "when users greet the bot"},
 		{2, "issue", "🐛 I see you've mentioned an issue. Can you provide more details like steps to reproduce, expected vs actual behavior?", "when users report bugs or issues"},
@@ -56,9 +54,5 @@ func GenerateAutoReplies() {
 	encoder.Encode(autoReplies)
 	log.Println("Generated auto.json with default replies")
 }
-
-// NOTE: This file is correct.
-// The error is not in this file, but because the following files are missing:
-//   /home/nathfavour/Documents/code/nathfavour/ideasbglobot/internal/bot.go
-//   /home/nathfavour/Documents/code/nathfavour/ideasbglobot/internal/config.go
-// Please create those files as described in previous responses to resolve the import errors.
+	log.Println("Generated auto.json with default replies")
+}

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/nathfavour/ideasbglobot/internal/config"
 )
 
 var DB *sql.DB
@@ -24,7 +23,7 @@ type Message struct {
 }
 
 func EnsureDatabase() error {
-	dbPath := filepath.Join(config.GetAppDir(), "data.db")
+	dbPath := filepath.Join(GetAppDir(), "data.db")
 	dir := filepath.Dir(dbPath)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -35,7 +34,7 @@ func EnsureDatabase() error {
 }
 
 func InitDatabase() error {
-	dbPath := filepath.Join(config.GetAppDir(), "data.db")
+	dbPath := filepath.Join(GetAppDir(), "data.db")
 	var err error
 	DB, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
@@ -73,4 +72,5 @@ func SaveMessage(msg Message) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		msg.ChatID, msg.UserID, msg.Username, msg.Text, msg.IsBot, msg.Type, msg.Created)
 	return err
+}
 }
