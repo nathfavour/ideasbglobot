@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"os/user"
 	"path/filepath"
+	"syscall"
 
-	"github.com/spf13/cobra"
-
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/nathfavour/ideasbglobot/cmd"
+	"github.com/spf13/cobra"
 )
 
 type BotConfig struct {
@@ -94,55 +96,79 @@ func runDefaultBot(cfg *Configs) {
 }
 
 func runTelegramBot(token string) {
-	b, err := tgbotapi.NewBotAPI(token)
+	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
-		fmt.Printf("Telegram bot init error: %v\n", err)
+		log.Printf("Failed to create bot: %v", err)
 		return
 	}
-	log.Printf("Authorized as @%s", b.Self.UserName)
 
+	bot.Debug = true
+	log.Printf("Authorized on account %s", bot.Self.UserName)
+
+	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
-	_ = cancel // placeholder for future graceful shutdown handling
+	defer cancel()
 
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		log.Println("Shutdown signal received")
+		cancel()
+	}()
+
+	// Configure updates
 	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 30
+	u.Timeout = 60
 
-	updates := b.GetUpdatesChan(u)
+	updates := bot.GetUpdatesChan(u)
+
+	log.Println("Bot started. Listening for messages...")
 
 	for {
 		select {
 		case <-ctx.Done():
+			log.Println("Bot stopped")
+			bot.StopReceivingUpdates()
 			return
-		case upd, ok := <-updates:
-			if !ok {
-				fmt.Println("Update channel closed.")
-				return
-			}
-			// Basic logging of incoming updates
-			switch {
-			case upd.Message != nil:
-				from := ""
-				if upd.Message.From != nil {
-					from = upd.Message.From.UserName
-				}
-				text := upd.Message.Text
-				if text == "" {
-					text = "<non-text message>"
-				}
-				fmt.Printf("[msg] chat=%d from=%s text=%q\n", upd.Message.Chat.ID, from, text)
 
-				// Simple command echo
-				if upd.Message.IsCommand() {
-					cmd := upd.Message.Command()
-					args := upd.Message.CommandArguments()
-					fmt.Printf("[cmd] /%s %s\n", cmd, args)
-					reply := tgbotapi.NewMessage(upd.Message.Chat.ID, fmt.Sprintf("Command %s received.", cmd))
-					_, _ = b.Send(reply)
+		case update := <-updates:
+			if update.Message == nil {
+				continue
+			}
+
+			// Log all incoming messages
+			username := update.Message.From.UserName
+			if username == "" {
+				username = update.Message.From.FirstName
+			}
+
+			log.Printf("[MESSAGE] Chat: %d, User: %s, Text: %s",
+				update.Message.Chat.ID, username, update.Message.Text)
+
+			// Handle commands
+			if update.Message.IsCommand() {
+				command := update.Message.Command()
+				args := update.Message.CommandArguments()
+
+				log.Printf("[COMMAND] /%s %s", command, args)
+
+				// Echo command back
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID,
+					fmt.Sprintf("✅ Command received: /%s %s", command, args))
+
+				if _, err := bot.Send(msg); err != nil {
+					log.Printf("Error sending message: %v", err)
 				}
-			case upd.CallbackQuery != nil:
-				fmt.Printf("[callback] id=%s data=%q\n", upd.CallbackQuery.ID, upd.CallbackQuery.Data)
-			default:
-				fmt.Printf("[raw update] %+v\n", upd)
+			} else {
+				// Echo regular messages
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID,
+					fmt.Sprintf("📝 Message received: %s", update.Message.Text))
+
+				if _, err := bot.Send(msg); err != nil {
+					log.Printf("Error sending message: %v", err)
+				}
 			}
 		}
 	}
