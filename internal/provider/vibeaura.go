@@ -3,7 +3,9 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -14,7 +16,8 @@ type VibeAuraProvider struct {
 
 func NewVibeAuraProvider(path string) *VibeAuraProvider {
 	if path == "" {
-		path = "/home/nathfavour/.local/bin/vibeaura"
+		home, _ := os.UserHomeDir()
+		path = filepath.Join(home, ".local/bin/vibeaura")
 	}
 	return &VibeAuraProvider{BinaryPath: path}
 }
