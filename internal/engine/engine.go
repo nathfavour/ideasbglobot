@@ -212,6 +212,8 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 		return e.replyHTML(msg, fmt.Sprintf("<b>⚠️ Error</b>\n<pre>%s</pre>", e.escapeHTML(err.Error())))
 	}
 
+	log.Printf("DEBUG: Raw AI Output:\n---\n%s\n---", rawOutput)
+
 	// 2. Extract Tags
 	e.processLearningTags(msg.ChatID, rawOutput)
 	e.processTaskTags(msg.ChatID, rawOutput)
@@ -223,20 +225,16 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 	// Parse thinking and response
 	lines := strings.Split(cleanOutput, "\n")
 	var thinking []string
-	var reply []string
+	var mainReply []string
 
 	statusRegex := regexp.MustCompile(`^(\x1b\[[0-9;]*m)?[.+?]\]\s+[A-Z-]+\s+\|.*`)
 
 	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine == "" {
-			continue
-		}
-
 		if statusRegex.MatchString(line) {
 			thinking = append(thinking, e.stripANSI(line))
 		} else {
-			reply = append(reply, line)
+			// Even empty lines in the main reply should be preserved for formatting
+			mainReply = append(mainReply, line)
 		}
 	}
 
@@ -248,14 +246,13 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 		respBuilder.WriteString("</pre>\n\n")
 	}
 
-	finalReply := strings.Join(reply, "\n")
-	if finalReply == "" && len(thinking) == 0 {
-		// Fallback: If stripping/parsing failed, show raw clean output
-		finalReply = cleanOutput
-	}
-	
+	finalReply := strings.TrimSpace(strings.Join(mainReply, "\n"))
 	if finalReply == "" {
-		finalReply = "_No response content._"
+		if len(thinking) > 0 {
+			finalReply = "_Thinking complete, but no final response was produced._"
+		} else {
+			finalReply = "_No response content produced by AI._"
+		}
 	}
 	respBuilder.WriteString(e.escapeHTML(finalReply))
 

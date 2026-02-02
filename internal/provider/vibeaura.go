@@ -25,10 +25,12 @@ func (p *VibeAuraProvider) Name() string {
 func (p *VibeAuraProvider) Generate(prompt string, mode string) (string, error) {
 	// mode here can be "chat" or "agent"
 	vibePrompt := prompt
-	if mode == "chat" {
-		vibePrompt = "CONVERSATIONAL MODE: Provide a concise response. Minimal tools.\n\n" + prompt
-	} else if mode == "agent" {
-		vibePrompt = "AGENT MODE: Use tools to solve the request.\n\n" + prompt
+	if prompt != "" {
+		if mode == "chat" {
+			vibePrompt = "CONVERSATIONAL MODE: Provide a concise response. Minimal tools.\n\n" + prompt
+		} else if mode == "agent" {
+			vibePrompt = "AGENT MODE: Use tools to solve the request.\n\n" + prompt
+		}
 	}
 
 	args := []string{"direct", "--verbose=false", "--non-interactive"}
