@@ -116,10 +116,16 @@ var botUpdateCmd = &cobra.Command{
 
 		fmt.Printf("🔄 New version detected (%s). Updating...\n", remoteHash[:7])
 
-		// Pull latest
-		pullCmd := internal.NewCommand("git", "-C", srcDir, "pull")
-		if out, err := pullCmd.CombinedOutput(); err != nil {
-			fmt.Printf("❌ Pull failed: %v\n%s\n", err, string(out))
+		// Fetch and Reset
+		fetchCmd := internal.NewCommand("git", "-C", srcDir, "fetch", "origin", "main")
+		if out, err := fetchCmd.CombinedOutput(); err != nil {
+			fmt.Printf("❌ Fetch failed: %v\n%s\n", err, string(out))
+			return
+		}
+
+		resetCmd := internal.NewCommand("git", "-C", srcDir, "reset", "--hard", "origin/main")
+		if out, err := resetCmd.CombinedOutput(); err != nil {
+			fmt.Printf("❌ Reset failed: %v\n%s\n", err, string(out))
 			return
 		}
 
