@@ -10,6 +10,22 @@ An ultra-modular Telegram bot with heavy contextualization and learning capabili
 - **Multi-Platform**: Designed to support multiple chat platforms (currently focusing on Telegram).
 - **Modular AI Providers**: Supports Ollama and VibeAura.
 
+## Installation
+
+You can install `ideasbglobot` using the following curl command:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/nathfavour/ideasbglobot/main/install.sh | bash
+```
+
+## Updates
+
+To update to the latest version, run:
+
+```bash
+ideasbglobot bot update
+```
+
 ## Data Directory
 
 The bot stores its data in `~/.ideasbglobot/`:

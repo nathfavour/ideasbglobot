@@ -119,4 +119,5 @@ func saveConfig(path string, cfg *internal.Configs) error {
 
 func init() {
 	BotCmd.AddCommand(botAddCmd)
+	BotCmd.AddCommand(botUpdateCmd)
 }
