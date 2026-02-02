@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/nathfavour/ideasbglobot/cmd"
@@ -13,6 +14,11 @@ import (
 )
 
 func main() {
+	// Initialize logger
+	if err := internal.SetupLogger(); err != nil {
+		fmt.Printf("Warning: Failed to setup logger: %v\n", err)
+	}
+
 	var allowIDs []int64
 
 	rootCmd := &cobra.Command{
@@ -22,7 +28,7 @@ func main() {
 			// Ensure all config/data/auto files are present and valid
 			cfg, err := internal.EnsureConfigFile()
 			if err != nil {
-				fmt.Printf("Error initializing config: %v\n", err)
+				log.Printf("Error initializing config: %v\n", err)
 				os.Exit(1)
 			}
 
@@ -45,7 +51,7 @@ func main() {
 			}
 
 			if err := internal.EnsureDatabase(); err != nil {
-				fmt.Printf("Failed to initialize database: %v\n", err)
+				log.Printf("Failed to initialize database: %v\n", err)
 				os.Exit(1)
 			}
 
@@ -59,14 +65,14 @@ func main() {
 				if ok && botCfg.Token != "" {
 					tg, err := platform.NewTelegramPlatform(botCfg.Token)
 					if err != nil {
-						fmt.Printf("Failed to init Telegram: %v\n", err)
+						log.Printf("Failed to init Telegram: %v\n", err)
 					} else {
 						eng.AddPlatform(tg)
 					}
 				}
 			}
 
-			fmt.Println("Starting Ultra-Modular Bot Engine...")
+			log.Println("Starting Ultra-Modular Bot Engine...")
 			eng.Start()
 
 			// Keep alive

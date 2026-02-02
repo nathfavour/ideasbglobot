@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type VibeAuraProvider struct {
@@ -38,7 +39,9 @@ func (p *VibeAuraProvider) Generate(prompt string, mode string) (string, error) 
 	}
 
 	args := []string{"direct", "--verbose=false"}
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
 	cmd := exec.CommandContext(ctx, p.BinaryPath, args...)
 	cmd.Stdin = strings.NewReader(vibePrompt)
 

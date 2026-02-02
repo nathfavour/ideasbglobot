@@ -26,23 +26,27 @@ if ! command -v go &> /dev/null; then
     exit 1
 fi
 
-# Create a temporary directory for building
-TMP_DIR=$(mktemp -d)
-cd "$TMP_DIR"
+# Create a persistent source directory for future updates
+SRC_DIR="$HOME/.ideasbglobot/src"
+mkdir -p "$SRC_DIR"
 
-# Clone and build
-echo "📦 Fetching latest source..."
-git clone --depth 1 "$REPO_URL" .
+if [ -d "$SRC_DIR/.git" ]; then
+    echo "🔄 Updating existing source..."
+    cd "$SRC_DIR"
+    git pull
+else
+    echo "📦 Fetching latest source..."
+    rm -rf "$SRC_DIR"
+    git clone --depth 1 "$REPO_URL" "$SRC_DIR"
+    cd "$SRC_DIR"
+fi
+
 echo "🛠 Building..."
 go build -o "$APP_NAME" main.go
 
 # Install
 echo "📥 Installing to $INSTALL_DIR..."
-mv "$APP_NAME" "$INSTALL_DIR/"
-
-# Cleanup
-cd "$HOME"
-rm -rf "$TMP_DIR"
+cp "$APP_NAME" "$INSTALL_DIR/"
 
 echo "✅ $APP_NAME installed successfully!"
 echo "Make sure $INSTALL_DIR is in your PATH."

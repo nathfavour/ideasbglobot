@@ -36,12 +36,16 @@ func NewEngine(cfg *internal.Configs, ai provider.AIProvider) *Engine {
 }
 
 func (e *Engine) broadcast(chatID int64, text string) {
+	log.Printf("Broadcasting to %d: %s", chatID, text)
 	for _, p := range e.Platforms {
-		p.Send(platform.OutgoingMessage{
+		err := p.Send(platform.OutgoingMessage{
 			ChatID:    chatID,
 			Text:      text,
 			ParseMode: platform.ParseModeHTML,
 		})
+		if err != nil {
+			log.Printf("Broadcast error on %s: %v", p.Name(), err)
+		}
 	}
 }
 
@@ -64,6 +68,8 @@ func (e *Engine) Start() {
 }
 
 func (e *Engine) HandleMessage(msg platform.IncomingMessage) error {
+	log.Printf("Received message from %d (%s): %s", msg.ChatID, msg.Username, msg.Text)
+
 	// Lockdown Logic
 	if len(e.Config.AllowedIDs) == 0 {
 		e.Config.AllowedIDs = append(e.Config.AllowedIDs, msg.ChatID)
@@ -82,6 +88,7 @@ func (e *Engine) HandleMessage(msg platform.IncomingMessage) error {
 
 	if !isAllowed {
 		log.Printf("Unauthorized message from %d (User: %s). Ignored.", msg.ChatID, msg.Username)
+		e.reply(msg, "⛔ **Access Denied**: You are not authorized to use this bot.")
 		return nil
 	}
 
@@ -207,11 +214,14 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 
 	fullPrompt := contextBuilder.String()
 
-	rawOutput, err := e.AI.Generate(fullPrompt, e.Config.DefaultAIModel)
+	log.Printf("Generating AI response for chat %d using mode %s", msg.ChatID, e.Mode)
+	rawOutput, err := e.AI.Generate(fullPrompt, e.Mode)
 	if err != nil {
+		log.Printf("AI Generation error for chat %d: %v", msg.ChatID, err)
 		return e.replyHTML(msg, fmt.Sprintf("<b>⚠️ Error</b>\n<pre>%s</pre>", e.escapeHTML(err.Error())))
 	}
 
+	log.Printf("AI response generated for chat %d (%d bytes)", msg.ChatID, len(rawOutput))
 	log.Printf("DEBUG: Raw AI Output:\n---\n%s\n---", rawOutput)
 
 	// 2. Extract Tags
@@ -320,6 +330,7 @@ func (e *Engine) stripTaskTags(output string) string {
 }
 
 func (e *Engine) replyHTML(msg platform.IncomingMessage, text string) error {
+	log.Printf("Replying to %d (HTML): %s", msg.ChatID, text)
 	for _, p := range e.Platforms {
 		if p.Name() == msg.Platform {
 			return p.Send(platform.OutgoingMessage{
@@ -351,6 +362,7 @@ func (e *Engine) stripANSI(str string) string {
 }
 
 func (e *Engine) reply(msg platform.IncomingMessage, text string) error {
+	log.Printf("Replying to %d: %s", msg.ChatID, text)
 	for _, p := range e.Platforms {
 		if p.Name() == msg.Platform {
 			return p.Send(platform.OutgoingMessage{
