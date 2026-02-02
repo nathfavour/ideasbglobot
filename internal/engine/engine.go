@@ -144,6 +144,27 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 	// Remove /ai prefix if present
 	prompt = regexp.MustCompile(`(?i)^/ai\s*`).ReplaceAllString(prompt, "")
 
+	// Get context from DB
+	history, err := internal.GetChatHistory(msg.ChatID, 10)
+	if err == nil && len(history) > 1 { // More than just the current message
+		var contextBuilder strings.Builder
+		contextBuilder.WriteString("RECENT CONVERSATION HISTORY:\n")
+		for _, m := range history {
+			role := "User"
+			if m.IsBot {
+				role = "Assistant"
+			}
+			// Skip current message in history to avoid duplication if it's already saved
+			if m.Text == msg.Text {
+				continue
+			}
+			contextBuilder.WriteString(fmt.Sprintf("%s: %s\n", role, m.Text))
+		}
+		contextBuilder.WriteString("\nNEW INPUT: ")
+		contextBuilder.WriteString(prompt)
+		prompt = contextBuilder.String()
+	}
+
 	rawOutput, err := e.AI.Generate(prompt, e.Mode)
 	if err != nil {
 		return e.replyHTML(msg, fmt.Sprintf("<b>⚠️ Error</b>\n<pre>%s</pre>", e.escapeHTML(err.Error())))

@@ -25,7 +25,7 @@ func GetConfigPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(usr.HomeDir, ".ideasbglobe")
+	dir := filepath.Join(usr.HomeDir, ".ideasbglobot")
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return "", err
@@ -96,5 +96,5 @@ func SaveConfig(path string, cfg *Configs) error {
 
 func GetAppDir() string {
 	usr, _ := user.Current()
-	return filepath.Join(usr.HomeDir, ".ideasbglobe")
+	return filepath.Join(usr.HomeDir, ".ideasbglobot")
 }

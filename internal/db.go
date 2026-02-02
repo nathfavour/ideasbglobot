@@ -73,3 +73,31 @@ func SaveMessage(msg Message) error {
 		msg.ChatID, msg.UserID, msg.Username, msg.Text, msg.IsBot, msg.Type, msg.Created)
 	return err
 }
+
+func GetChatHistory(chatID int64, limit int) ([]Message, error) {
+	rows, err := DB.Query(`
+		SELECT id, chat_id, user_id, username, text, is_bot, type, created 
+		FROM messages 
+		WHERE chat_id = ? 
+		ORDER BY created DESC 
+		LIMIT ?`, chatID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var history []Message
+	for rows.Next() {
+		var m Message
+		err := rows.Scan(&m.ID, &m.ChatID, &m.UserID, &m.Username, &m.Text, &m.IsBot, &m.Type, &m.Created)
+		if err != nil {
+			return nil, err
+		}
+		history = append(history, m)
+	}
+	// Reverse history to be chronological
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
+	}
+	return history, nil
+}
