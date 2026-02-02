@@ -6,6 +6,9 @@ import (
 
 	"github.com/nathfavour/ideasbglobot/cmd"
 	"github.com/nathfavour/ideasbglobot/internal"
+	"github.com/nathfavour/ideasbglobot/internal/engine"
+	"github.com/nathfavour/ideasbglobot/internal/platform"
+	"github.com/nathfavour/ideasbglobot/internal/provider"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +29,28 @@ func main() {
 				os.Exit(1)
 			}
 
-			internal.RunDefaultBot(cfg)
+			// Initialize New Modular Architecture
+			aiProvider := provider.NewOllamaProvider("")
+			eng := engine.NewEngine(cfg, aiProvider)
+
+			// Setup Telegram Platform if token exists
+			if cfg.DefaultBotID != "" {
+				botCfg, ok := cfg.Bots[cfg.DefaultBotID]
+				if ok && botCfg.Token != "" {
+					tg, err := platform.NewTelegramPlatform(botCfg.Token)
+					if err != nil {
+						fmt.Printf("Failed to init Telegram: %v\n", err)
+					} else {
+						eng.AddPlatform(tg)
+					}
+				}
+			}
+
+			fmt.Println("Starting Ultra-Modular Bot Engine...")
+			eng.Start()
+
+			// Keep alive
+			select {}
 		},
 	}
 
