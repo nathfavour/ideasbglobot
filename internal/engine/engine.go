@@ -17,14 +17,31 @@ type Engine struct {
 	Platforms []platform.Platform
 	AI        provider.AIProvider
 	Config    *internal.Configs
+	Scheduler *internal.Scheduler
 	Mode      string // "chat", "agent", "shell"
 }
 
 func NewEngine(cfg *internal.Configs, ai provider.AIProvider) *Engine {
-	return &Engine{
+	e := &Engine{
 		Config: cfg,
 		AI:     ai,
 		Mode:   "chat",
+	}
+	e.Scheduler = &internal.Scheduler{
+		NotifyFunc: func(chatID int64, message string) {
+			e.broadcast(chatID, message)
+		},
+	}
+	return e
+}
+
+func (e *Engine) broadcast(chatID int64, text string) {
+	for _, p := range e.Platforms {
+		p.Send(platform.OutgoingMessage{
+			ChatID:    chatID,
+			Text:      text,
+			ParseMode: platform.ParseModeHTML,
+		})
 	}
 }
 
@@ -33,6 +50,9 @@ func (e *Engine) AddPlatform(p platform.Platform) {
 }
 
 func (e *Engine) Start() {
+	if e.Scheduler != nil {
+		e.Scheduler.Start()
+	}
 	for _, p := range e.Platforms {
 		go func(plt platform.Platform) {
 			err := plt.Listen(e.HandleMessage)
@@ -144,51 +164,79 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 	// Remove /ai prefix if present
 	prompt = regexp.MustCompile(`(?i)^/ai\s*`).ReplaceAllString(prompt, "")
 
-	// Get context from DB
-	history, err := internal.GetChatHistory(msg.ChatID, 10)
-	if err == nil && len(history) > 1 { // More than just the current message
-		var contextBuilder strings.Builder
-		contextBuilder.WriteString("RECENT CONVERSATION HISTORY:\n")
+	// 1. Build Context
+	var contextBuilder strings.Builder
+	
+	// Add System Instructions
+	contextBuilder.WriteString("### SYSTEM INSTRUCTIONS\n")
+	contextBuilder.WriteString(e.Config.DefaultAIPrompt)
+	contextBuilder.WriteString("\n\n")
+
+	// Add Persistent Context and Learned Facts
+	ctxData, _ := internal.FormatContextForPrompt(msg.ChatID)
+	contextBuilder.WriteString(ctxData)
+
+	// Add Recent Conversation History
+	history, err := internal.GetChatHistory(msg.ChatID, 15)
+	if err == nil && len(history) > 0 {
+		contextBuilder.WriteString("### RECENT CONVERSATION HISTORY\n")
 		for _, m := range history {
 			role := "User"
 			if m.IsBot {
 				role = "Assistant"
 			}
-			// Skip current message in history to avoid duplication if it's already saved
-			if m.Text == msg.Text {
+			// Avoid duplicating the current message if it was already saved
+			if m.Text == msg.Text && !m.IsBot {
 				continue
 			}
 			contextBuilder.WriteString(fmt.Sprintf("%s: %s\n", role, m.Text))
 		}
-		contextBuilder.WriteString("\nNEW INPUT: ")
-		contextBuilder.WriteString(prompt)
-		prompt = contextBuilder.String()
+		contextBuilder.WriteString("\n")
 	}
 
-	rawOutput, err := e.AI.Generate(prompt, e.Mode)
+	contextBuilder.WriteString("### NEW USER INPUT\n")
+	contextBuilder.WriteString(prompt)
+	contextBuilder.WriteString("\n\n")
+	
+	contextBuilder.WriteString("### RESPONSE GUIDELINES\n")
+	contextBuilder.WriteString("If you learned something new and important about the user or the context, you can suggest a 'FACT' to be remembered in the format: [LEARN: key=value].\n")
+	contextBuilder.WriteString("If something previously learned is no longer true, use: [UNLEARN: key].\n")
+	contextBuilder.WriteString("If you want to update the global CONTEXT.md, use: [UPDATE_CONTEXT: new content].\n")
+	contextBuilder.WriteString("If you need to schedule a task or reminder, use: [TASK: title | description | YYYY-MM-DD HH:MM].\n")
+	contextBuilder.WriteString("Provide your normal response first, then any learning/task tags at the end.\n")
+
+	fullPrompt := contextBuilder.String()
+
+	rawOutput, err := e.AI.Generate(fullPrompt, e.Config.DefaultAIModel)
 	if err != nil {
 		return e.replyHTML(msg, fmt.Sprintf("<b>⚠️ Error</b>\n<pre>%s</pre>", e.escapeHTML(err.Error())))
 	}
 
-	// Parse thinking and response (replicating tel logic)
-	lines := strings.Split(rawOutput, "\n")
+	// 2. Extract Tags
+	e.processLearningTags(msg.ChatID, rawOutput)
+	e.processTaskTags(msg.ChatID, rawOutput)
+
+	// 3. Clean output for user
+	cleanOutput := e.stripLearningTags(rawOutput)
+	cleanOutput = e.stripTaskTags(cleanOutput)
+
+	// Parse thinking and response
+	lines := strings.Split(cleanOutput, "\n")
 	var thinking []string
 	var reply []string
 
 	statusRegex := regexp.MustCompile(`^(\x1b\[[0-9;]*m)?[.+?]\]\s+[A-Z-]+\s+\|.*`)
 
 	for _, line := range lines {
-		if line == "" || strings.HasPrefix(line, "User:") {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
 			continue
 		}
 
 		if statusRegex.MatchString(line) {
 			thinking = append(thinking, e.stripANSI(line))
 		} else {
-			cleanLine := strings.TrimSpace(line)
-			if cleanLine != "" {
-				reply = append(reply, line)
-			}
+			reply = append(reply, line)
 		}
 	}
 
@@ -201,12 +249,107 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 	}
 
 	finalReply := strings.Join(reply, "\n")
+	if finalReply == "" && len(thinking) == 0 {
+		// Fallback: If stripping/parsing failed, show raw clean output
+		finalReply = cleanOutput
+	}
+	
 	if finalReply == "" {
-		finalReply = "_No clear response captured._"
+		finalReply = "_No response content._"
 	}
 	respBuilder.WriteString(e.escapeHTML(finalReply))
 
 	return e.replyHTML(msg, respBuilder.String())
+}
+
+func (e *Engine) processLearningTags(chatID int64, output string) {
+	// [LEARN: key=value]
+	learnRegex := regexp.MustCompile(`\[LEARN:\s*([^=]+)=([^\]]+)\]`)
+	matches := learnRegex.FindAllStringSubmatch(output, -1)
+	for _, m := range matches {
+		if len(m) == 3 {
+			key := strings.TrimSpace(m[1])
+			val := strings.TrimSpace(m[2])
+			internal.SaveContextFact(internal.ContextFact{
+				ChatID:     chatID,
+				Key:        key,
+				Value:      val,
+				Source:     "ai_inference",
+				Confidence: 0.8,
+			})
+			log.Printf("Learned fact: %s = %s", key, val)
+		}
+	}
+
+	// [UNLEARN: key]
+	unlearnRegex := regexp.MustCompile(`\[UNLEARN:\s*([^\]]+)\]`)
+	unlearnMatches := unlearnRegex.FindAllStringSubmatch(output, -1)
+	for _, m := range unlearnMatches {
+		if len(m) == 2 {
+			key := strings.TrimSpace(m[1])
+			internal.DeleteContextFact(chatID, key)
+			log.Printf("Unlearned fact: %s", key)
+		}
+	}
+
+	// [UPDATE_CONTEXT: new content]
+	// This might be tricky if the content has newlines. Let's use a more robust approach if possible.
+	// For now, simple regex.
+	updateRegex := regexp.MustCompile(`(?s)\[UPDATE_CONTEXT:\s*(.*?)\]`)
+	updateMatch := updateRegex.FindStringSubmatch(output)
+	if len(updateMatch) == 2 {
+		newContext := strings.TrimSpace(updateMatch[1])
+		if newContext != "" {
+			err := internal.WriteContextFile(newContext)
+			if err != nil {
+				log.Printf("Error updating CONTEXT.md: %v", err)
+			} else {
+				log.Printf("Updated CONTEXT.md")
+			}
+		}
+	}
+}
+
+func (e *Engine) stripLearningTags(output string) string {
+	output = regexp.MustCompile(`\[LEARN:\s*[^\]]+\]`).ReplaceAllString(output, "")
+	output = regexp.MustCompile(`\[UNLEARN:\s*[^\]]+\]`).ReplaceAllString(output, "")
+	output = regexp.MustCompile(`(?s)\[UPDATE_CONTEXT:\s*.*?\]`).ReplaceAllString(output, "")
+	return strings.TrimSpace(output)
+}
+
+func (e *Engine) processTaskTags(chatID int64, output string) {
+	// [TASK: title | description | YYYY-MM-DD HH:MM]
+	taskRegex := regexp.MustCompile(`\[TASK:\s*([^|]+)\|([^|]+)\|([^\]]+)\]`)
+	matches := taskRegex.FindAllStringSubmatch(output, -1)
+	for _, m := range matches {
+		if len(m) == 4 {
+			title := strings.TrimSpace(m[1])
+			desc := strings.TrimSpace(m[2])
+			dueStr := strings.TrimSpace(m[3])
+			
+			dueAt, err := time.Parse("2006-01-02 15:04", dueStr)
+			if err != nil {
+				log.Printf("Error parsing task date %s: %v", dueStr, err)
+				continue
+			}
+
+			err = internal.SaveTask(internal.Task{
+				ChatID:      chatID,
+				Title:       title,
+				Description: desc,
+				DueAt:       dueAt,
+			})
+			if err != nil {
+				log.Printf("Error saving task: %v", err)
+			} else {
+				log.Printf("Scheduled task: %s at %s", title, dueAt)
+			}
+		}
+	}
+}
+
+func (e *Engine) stripTaskTags(output string) string {
+	return strings.TrimSpace(regexp.MustCompile(`\[TASK:\s*[^\]]+\]`).ReplaceAllString(output, ""))
 }
 
 func (e *Engine) replyHTML(msg platform.IncomingMessage, text string) error {

@@ -63,6 +63,39 @@ func InitDatabase() error {
 			context TEXT
 		)
 	`)
+	if err != nil {
+		return err
+	}
+	_, err = DB.Exec(`
+		CREATE TABLE IF NOT EXISTS context_facts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chat_id INTEGER,
+			key TEXT,
+			value TEXT,
+			source TEXT,
+			confidence REAL,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	_, err = DB.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_context_facts_chat_key ON context_facts(chat_id, key)`)
+	if err != nil {
+		return err
+	}
+	_, err = DB.Exec(`
+		CREATE TABLE IF NOT EXISTS tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chat_id INTEGER,
+			title TEXT,
+			description TEXT,
+			due_at DATETIME,
+			status TEXT DEFAULT 'pending',
+			reminded BOOLEAN DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
 	return err
 }
 

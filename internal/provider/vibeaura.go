@@ -31,7 +31,7 @@ func (p *VibeAuraProvider) Generate(prompt string, mode string) (string, error) 
 		vibePrompt = "AGENT MODE: Use tools to solve the request.\n\n" + prompt
 	}
 
-	args := []string{"direct", "--verbose=true", "--non-interactive"}
+	args := []string{"direct", "--verbose=false", "--non-interactive"}
 	ctx := context.Background()
 	cmd := exec.CommandContext(ctx, p.BinaryPath, args...)
 	cmd.Stdin = strings.NewReader(vibePrompt)
