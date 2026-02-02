@@ -222,41 +222,11 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 	cleanOutput := e.stripLearningTags(rawOutput)
 	cleanOutput = e.stripTaskTags(cleanOutput)
 
-	// Parse thinking and response
-	lines := strings.Split(cleanOutput, "\n")
-	var thinking []string
-	var mainReply []string
-
-	statusRegex := regexp.MustCompile(`^(\x1b\[[0-9;]*m)?[.+?]\]\s+[A-Z-]+\s+\|.*`)
-
-	for _, line := range lines {
-		if statusRegex.MatchString(line) {
-			thinking = append(thinking, e.stripANSI(line))
-		} else {
-			// Even empty lines in the main reply should be preserved for formatting
-			mainReply = append(mainReply, line)
-		}
+	if cleanOutput == "" {
+		cleanOutput = "_No response content produced by AI._"
 	}
 
-	var respBuilder strings.Builder
-	if len(thinking) > 0 {
-		respBuilder.WriteString("<b>💭 Thinking...</b>\n")
-		respBuilder.WriteString("<pre>")
-		respBuilder.WriteString(e.escapeHTML(strings.Join(thinking, "\n")))
-		respBuilder.WriteString("</pre>\n\n")
-	}
-
-	finalReply := strings.TrimSpace(strings.Join(mainReply, "\n"))
-	if finalReply == "" {
-		if len(thinking) > 0 {
-			finalReply = "_Thinking complete, but no final response was produced._"
-		} else {
-			finalReply = "_No response content produced by AI._"
-		}
-	}
-	respBuilder.WriteString(e.escapeHTML(finalReply))
-
-	return e.replyHTML(msg, respBuilder.String())
+	return e.replyHTML(msg, e.escapeHTML(cleanOutput))
 }
 
 func (e *Engine) processLearningTags(chatID int64, output string) {

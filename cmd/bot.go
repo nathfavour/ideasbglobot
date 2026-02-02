@@ -69,6 +69,26 @@ var botAddCmd = &cobra.Command{
 	},
 }
 
+var botUpdateCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update ideasbglobot to the latest version",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("⏳ Checking for updates...")
+		
+		// Use curl to download and run the install script
+		updateCmd := "curl -sSL https://raw.githubusercontent.com/nathfavour/ideasbglobot/main/install.sh | bash"
+		
+		execCmd := internal.NewCommand("bash", "-c", updateCmd)
+		output, err := execCmd.CombinedOutput()
+		if err != nil {
+			fmt.Printf("❌ Update failed: %v\n%s\n", err, string(output))
+			return
+		}
+		
+		fmt.Println(string(output))
+	},
+}
+
 // getConfigPath is now in internal/config.go as GetConfigPath
 
 // Use BotConfig and Configs from internal/config.go

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -33,7 +34,7 @@ func (p *VibeAuraProvider) Generate(prompt string, mode string) (string, error) 
 		}
 	}
 
-	args := []string{"direct", "--verbose=false", "--non-interactive"}
+	args := []string{"direct", "--verbose=false"}
 	ctx := context.Background()
 	cmd := exec.CommandContext(ctx, p.BinaryPath, args...)
 	cmd.Stdin = strings.NewReader(vibePrompt)
@@ -43,5 +44,17 @@ func (p *VibeAuraProvider) Generate(prompt string, mode string) (string, error) 
 		return "", fmt.Errorf("vibeaura error: %w\n%s", err, string(output))
 	}
 
-	return string(output), nil
+	// Clean REPL noise
+	res := string(output)
+	res = strings.ReplaceAll(res, "--- VibeAuracle Direct REPL ---", "")
+	res = strings.ReplaceAll(res, "Type 'exit' to quit, 'clear' to clear screen.", "")
+	
+	// Remove thought markers like "> **Thinking...**" but keep the text after them if it's not another marker
+	reThoughtMarkers := regexp.MustCompile(`(?m)^> \*\*.*?\*\*`)
+	res = reThoughtMarkers.ReplaceAllString(res, "")
+	
+	// Remove empty prompts "> "
+	res = strings.ReplaceAll(res, "> ", "")
+
+	return strings.TrimSpace(res), nil
 }
