@@ -33,11 +33,12 @@ mkdir -p "$SRC_DIR"
 if [ -d "$SRC_DIR/.git" ]; then
     echo "🔄 Updating existing source..."
     cd "$SRC_DIR"
-    git pull
+    git fetch origin main
+    git reset --hard origin/main
 else
     echo "📦 Fetching latest source..."
     rm -rf "$SRC_DIR"
-    git clone --depth 1 "$REPO_URL" "$SRC_DIR"
+    git clone "$REPO_URL" "$SRC_DIR"
     cd "$SRC_DIR"
 fi
 
