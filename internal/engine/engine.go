@@ -17,12 +17,14 @@ type Engine struct {
 	Platforms []platform.Platform
 	AI        provider.AIProvider
 	Config    *internal.Configs
+	Mode      string // "chat", "agent", "shell"
 }
 
 func NewEngine(cfg *internal.Configs, ai provider.AIProvider) *Engine {
 	return &Engine{
 		Config: cfg,
 		AI:     ai,
+		Mode:   "chat",
 	}
 }
 
@@ -57,66 +59,143 @@ func (e *Engine) HandleMessage(msg platform.IncomingMessage) error {
 
 	log.Printf("[%s:%s] %s: %s", msg.Platform, strings.ToUpper(msgType), msg.Username, msg.Text)
 
-	// Command Handling
+	// Command Handling (Global Commands)
 	if msg.IsCommand {
-		return e.handleCommand(msg)
+		// Specific check for /mode or /status which should always work
+		if msg.Command == "mode" || msg.Command == "status" || msg.Command == "start" {
+			return e.handleCommand(msg)
+		}
 	}
 
-	// AI Trigger
-	if e.shouldTriggerAI(msg) {
+	// Route based on mode
+	switch e.Mode {
+	case "shell":
+		return e.handleShellMode(msg, msg.Text)
+	case "agent", "chat":
+		return e.handleAI(msg, msgType)
+	default:
 		return e.handleAI(msg, msgType)
 	}
-
-	// Auto-reply logic
-	if e.shouldRespond(msg) {
-		reply, err := e.getSmartReply(msg.Text, msgType)
-		if err != nil {
-			return err
-		}
-		return e.reply(msg, reply)
-	}
-
-	return nil
 }
 
 func (e *Engine) handleCommand(msg platform.IncomingMessage) error {
 	switch msg.Command {
 	case "run":
-		if msg.Args == "" {
-			return e.reply(msg, "❌ Please provide a command to run.")
-		}
-		out, err := e.runShellCommand(msg.Args)
-		if err != nil {
-			return e.reply(msg, fmt.Sprintf("❌ Error: %v", err))
-		}
-		return e.reply(msg, fmt.Sprintf("💻 Output:\n%s", out))
+		return e.handleShellMode(msg, msg.Args)
 	case "status":
-		return e.reply(msg, "🤖 Bot is running in modular mode.")
-	case "ai":
-		// Handle AI model updates (e.g., /ai model set <name>)
-		if strings.HasPrefix(msg.Args, "model set ") {
-			model := strings.TrimPrefix(msg.Args, "model set ")
-			e.Config.DefaultAIModel = model
-			path, _ := internal.GetConfigPath()
-			internal.SaveConfig(path, e.Config)
-			return e.reply(msg, fmt.Sprintf("✅ Default AI model set to '%s'", model))
+		return e.reply(msg, fmt.Sprintf("🤖 Bot Status\nMode: %s\nProvider: %s", strings.ToUpper(e.Mode), e.AI.Name()))
+	case "mode":
+		newMode := strings.ToLower(strings.TrimSpace(msg.Args))
+		if newMode == "chat" || newMode == "agent" || newMode == "shell" {
+			e.Mode = newMode
+			return e.reply(msg, fmt.Sprintf("✅ Mode switched to: %s", strings.ToUpper(newMode)))
 		}
+		return e.reply(msg, "Invalid mode. Choose: chat, agent, shell")
 	}
 	return e.reply(msg, fmt.Sprintf("⚡ Command processed: /%s", msg.Command))
 }
 
-func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
-	prompt := e.Config.DefaultAIPrompt
-	if prompt == "" {
-		prompt = "Reply in one concise sentence. Be helpful."
+func (e *Engine) handleShellMode(msg platform.IncomingMessage, command string) error {
+	if command == "" {
+		return e.reply(msg, "❌ Please provide a command to run.")
 	}
-	
-	fullPrompt := fmt.Sprintf("%s\nContext: %s\nUser: %s", prompt, msgType, msg.Text)
-	response, err := e.AI.Generate(fullPrompt, e.Config.DefaultAIModel)
+
+	shellBlacklist := []string{"rm ", "mkfs", "dd ", "fdisk", "reboot", "shutdown"}
+	lowerCmd := strings.ToLower(command)
+	for _, restricted := range shellBlacklist {
+		if strings.Contains(lowerCmd, restricted) {
+			return e.replyHTML(msg, fmt.Sprintf("🛑 <b>SECURITY ALERT</b>: Restricted command."))
+		}
+	}
+
+	e.sendAction(msg.ChatID, platform.ActionTyping)
+	out, err := e.runShellCommand(command)
 	if err != nil {
-		return e.reply(msg, "[AI Error] "+err.Error())
+		return e.replyHTML(msg, fmt.Sprintf("❌ <b>Error:</b> %v\n<pre>%s</pre>", err, e.escapeHTML(out)))
 	}
-	return e.reply(msg, response)
+	return e.replyHTML(msg, fmt.Sprintf("<pre>%s</pre>", e.escapeHTML(out)))
+}
+
+func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
+	e.sendAction(msg.ChatID, platform.ActionTyping)
+
+	prompt := msg.Text
+	// Remove /ai prefix if present
+	prompt = regexp.MustCompile(`(?i)^/ai\s*`).ReplaceAllString(prompt, "")
+
+	rawOutput, err := e.AI.Generate(prompt, e.Mode)
+	if err != nil {
+		return e.replyHTML(msg, fmt.Sprintf("<b>⚠️ Error</b>\n<pre>%s</pre>", e.escapeHTML(err.Error())))
+	}
+
+	// Parse thinking and response (replicating tel logic)
+	lines := strings.Split(rawOutput, "\n")
+	var thinking []string
+	var reply []string
+
+	statusRegex := regexp.MustCompile(`^(\x1b\[[0-9;]*m)?[.+?]\]\s+[A-Z-]+\s+\|.*`)
+
+	for _, line := range lines {
+		if line == "" || strings.HasPrefix(line, "User:") {
+			continue
+		}
+
+		if statusRegex.MatchString(line) {
+			thinking = append(thinking, e.stripANSI(line))
+		} else {
+			cleanLine := strings.TrimSpace(line)
+			if cleanLine != "" {
+				reply = append(reply, line)
+			}
+		}
+	}
+
+	var respBuilder strings.Builder
+	if len(thinking) > 0 {
+		respBuilder.WriteString("<b>💭 Thinking...</b>\n")
+		respBuilder.WriteString("<pre>")
+		respBuilder.WriteString(e.escapeHTML(strings.Join(thinking, "\n")))
+		respBuilder.WriteString("</pre>\n\n")
+	}
+
+	finalReply := strings.Join(reply, "\n")
+	if finalReply == "" {
+		finalReply = "_No clear response captured._"
+	}
+	respBuilder.WriteString(e.escapeHTML(finalReply))
+
+	return e.replyHTML(msg, respBuilder.String())
+}
+
+func (e *Engine) replyHTML(msg platform.IncomingMessage, text string) error {
+	for _, p := range e.Platforms {
+		if p.Name() == msg.Platform {
+			return p.Send(platform.OutgoingMessage{
+				ChatID:    msg.ChatID,
+				Text:      text,
+				ParseMode: platform.ParseModeHTML,
+			})
+		}
+	}
+	return fmt.Errorf("platform %s not found", msg.Platform)
+}
+
+func (e *Engine) sendAction(chatID int64, action string) {
+	for _, p := range e.Platforms {
+		p.SendAction(chatID, action)
+	}
+}
+
+func (e *Engine) escapeHTML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
+}
+
+func (e *Engine) stripANSI(str string) string {
+	re := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+	return re.ReplaceAllString(str, "")
 }
 
 func (e *Engine) reply(msg platform.IncomingMessage, text string) error {
@@ -134,7 +213,7 @@ func (e *Engine) reply(msg platform.IncomingMessage, text string) error {
 // Utility methods migrated from internal/bot.go
 func (e *Engine) detectMessageType(text string) string {
 	text = strings.ToLower(text)
-	sswitch {
+	switch {
 	case strings.Contains(text, "issue"), strings.Contains(text, "bug"): return "issue"
 	case strings.Contains(text, "feature"), strings.Contains(text, "request"): return "feature_request"
 	case strings.Contains(text, "question"), strings.Contains(text, "?"): return "question"

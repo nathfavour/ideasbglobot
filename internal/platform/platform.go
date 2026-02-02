@@ -1,7 +1,5 @@
 package platform
 
-import "time"
-
 type IncomingMessage struct {
 	Platform  string
 	ChatID    int64
@@ -16,13 +14,20 @@ type IncomingMessage struct {
 }
 
 type OutgoingMessage struct {
-	ChatID int64
-	Text   string
+	ChatID    int64
+	Text      string
+	ParseMode string
 }
+
+const (
+	ParseModeHTML = "HTML"
+	ActionTyping  = "typing"
+)
 
 type Platform interface {
 	Name() string
 	Listen(handler func(IncomingMessage) error) error
 	Send(msg OutgoingMessage) error
+	SendAction(chatID int64, action string) error
 	Stop()
 }

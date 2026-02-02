@@ -30,7 +30,7 @@ func main() {
 			}
 
 			// Initialize New Modular Architecture
-			aiProvider := provider.NewOllamaProvider("")
+			aiProvider := provider.NewVibeAuraProvider("")
 			eng := engine.NewEngine(cfg, aiProvider)
 
 			// Setup Telegram Platform if token exists

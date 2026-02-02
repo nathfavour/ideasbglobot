@@ -73,7 +73,22 @@ func (p *TelegramPlatform) Listen(handler func(IncomingMessage) error) error {
 
 func (p *TelegramPlatform) Send(msg OutgoingMessage) error {
 	reply := tgbotapi.NewMessage(msg.ChatID, msg.Text)
+	if msg.ParseMode == "HTML" {
+		reply.ParseMode = tgbotapi.ModeHTML
+	}
 	_, err := p.bot.Send(reply)
+	return err
+}
+
+func (p *TelegramPlatform) SendAction(chatID int64, action string) error {
+	tgAction := ""
+	switch action {
+	case ActionTyping:
+		tgAction = tgbotapi.ChatTyping
+	default:
+		return fmt.Errorf("unknown action: %s", action)
+	}
+	_, err := p.bot.Send(tgbotapi.NewChatAction(chatID, tgAction))
 	return err
 }
 

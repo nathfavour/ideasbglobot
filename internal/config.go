@@ -17,6 +17,7 @@ type Configs struct {
 	Bots            map[string]BotConfig `json:"bots"`
 	DefaultAIModel  string               `json:"default_ai_model"`
 	DefaultAIPrompt string               `json:"default_ai_prompt"`
+	AllowedIDs      []int64              `json:"allowed_ids"`
 }
 
 func GetConfigPath() (string, error) {
