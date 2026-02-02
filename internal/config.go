@@ -91,7 +91,7 @@ func SaveConfig(path string, cfg *Configs) error {
 	if err := enc.Encode(cfg); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return SafeMove(tmp, path)
 }
 
 func GetAppDir() string {

@@ -66,7 +66,7 @@ func SaveProcessQueue(q *processQueue) error {
 	if err := enc.Encode(q); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return SafeMove(tmp, path)
 }
 
 // AddProcessTask adds a new task to the queue
