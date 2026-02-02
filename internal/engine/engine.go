@@ -44,6 +44,27 @@ func (e *Engine) Start() {
 }
 
 func (e *Engine) HandleMessage(msg platform.IncomingMessage) error {
+	// Lockdown Logic
+	if len(e.Config.AllowedIDs) == 0 {
+		e.Config.AllowedIDs = append(e.Config.AllowedIDs, msg.ChatID)
+		path, _ := internal.GetConfigPath()
+		internal.SaveConfig(path, e.Config)
+		log.Printf("First message received from %d. Bot locked to this ID.", msg.ChatID)
+	}
+
+	isAllowed := false
+	for _, id := range e.Config.AllowedIDs {
+		if id == msg.ChatID {
+			isAllowed = true
+			break
+		}
+	}
+
+	if !isAllowed {
+		log.Printf("Unauthorized message from %d (User: %s). Ignored.", msg.ChatID, msg.Username)
+		return nil
+	}
+
 	msgType := e.detectMessageType(msg.Text)
 	
 	// Persistence

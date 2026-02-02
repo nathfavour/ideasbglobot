@@ -2,10 +2,11 @@ package internal
 
 import (
 	"database/sql"
-	_ "github.com/mattn/go-sqlite3"
 	"os"
 	"path/filepath"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 var DB *sql.DB
@@ -35,7 +36,7 @@ func EnsureDatabase() error {
 func InitDatabase() error {
 	dbPath := filepath.Join(GetAppDir(), "data.db")
 	var err error
-	DB, err = sql.Open("sqlite3", dbPath)
+	DB, err = sql.Open("sqlite", dbPath)
 	if err != nil {
 		return err
 	}

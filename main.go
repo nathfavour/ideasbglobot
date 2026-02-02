@@ -13,6 +13,8 @@ import (
 )
 
 func main() {
+	var allowIDs []int64
+
 	rootCmd := &cobra.Command{
 		Use:   "ideasbglobot",
 		Short: "Automate Telegram bots, AI, and git from the CLI",
@@ -22,6 +24,24 @@ func main() {
 			if err != nil {
 				fmt.Printf("Error initializing config: %v\n", err)
 				os.Exit(1)
+			}
+
+			// Add allowed IDs from flags if any
+			if len(allowIDs) > 0 {
+				for _, id := range allowIDs {
+					exists := false
+					for _, existingID := range cfg.AllowedIDs {
+						if existingID == id {
+							exists = true
+							break
+						}
+					}
+					if !exists {
+						cfg.AllowedIDs = append(cfg.AllowedIDs, id)
+					}
+				}
+				path, _ := internal.GetConfigPath()
+				internal.SaveConfig(path, cfg)
 			}
 
 			if err := internal.EnsureDatabase(); err != nil {
@@ -58,6 +78,8 @@ func main() {
 	rootCmd.AddCommand(cmd.AiCmd)
 	rootCmd.AddCommand(cmd.GitCmd)
 	rootCmd.AddCommand(cmd.GhCmd)
+
+	rootCmd.PersistentFlags().Int64SliceVar(&allowIDs, "allow", []int64{}, "Allow specific user or group IDs")
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
