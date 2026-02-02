@@ -9,7 +9,13 @@ APP_NAME="ideasbglobot"
 INSTALL_DIR="$HOME/.local/bin"
 REPO_URL="https://github.com/nathfavour/ideasbglobot"
 
-echo "🚀 Installing $APP_NAME..."
+# Ensure we are not installing to a restricted system path
+if [[ "$INSTALL_DIR" != "$HOME"* ]]; then
+    echo "❌ Error: Installation is restricted to the user's home directory ($HOME)."
+    exit 1
+fi
+
+echo "🚀 Installing $APP_NAME to $INSTALL_DIR..."
 
 # Create install directory if it doesn't exist
 mkdir -p "$INSTALL_DIR"
