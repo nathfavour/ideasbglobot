@@ -12,7 +12,7 @@ An ultra-modular Telegram bot with heavy contextualization and learning capabili
 
 ## Installation
 
-You can install `ideasbglobot` using the following curl command:
+To install `ideasbglobot` directly from the repository, run:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/nathfavour/ideasbglobot/main/install.sh | bash
