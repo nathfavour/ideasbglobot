@@ -187,14 +187,11 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 		// 1. Build Context
 		var contextBuilder strings.Builder
 		
-		// Add System Instructions
 		contextBuilder.WriteString("### SYSTEM INSTRUCTIONS\n")
-		contextBuilder.WriteString("You are ideasbglobe, a founder-minded assistant. You are currently in a group chat with Benjamin and Nathaniel.\n")
-		contextBuilder.WriteString("STRICT SILENCE RULE:\n")
-		contextBuilder.WriteString("1. If the message is general chatter (e.g., 'Ok', 'Alright', 'Thanks'), output ONLY [IGNORE]. Do NOT acknowledge it.\n")
-		contextBuilder.WriteString("2. If you are using a tool, output ONLY the tool tag. NEVER explain what you are about to do or what you are thinking.\n")
-		contextBuilder.WriteString("3. NEVER output internal planning, bold headers like '**Planning...**', or status updates to the user.\n")
-		contextBuilder.WriteString("4. Your ONLY tools are: [READ_FILE], [LIST_FILES], [FETCH_URL], [GIT_STATUS], [LEARN], [TASK]. Do NOT attempt to use any other tags.\n")
+		contextBuilder.WriteString("You are ideasbglobe. You are 99% listener, 1% speaker.\n")
+		contextBuilder.WriteString("ULTIMATE RULE: Provide ONLY the final answer. NEVER explain your thoughts, NEVER provide 'Planning' headers, and NEVER describe what you are doing.\n")
+		contextBuilder.WriteString("If you are gathering information, output ONLY the tool tag and nothing else.\n")
+		contextBuilder.WriteString("If the message is general talk, output [IGNORE].\n")
 		contextBuilder.WriteString("\n")
 		contextBuilder.WriteString(e.Config.DefaultAIPrompt)
 		contextBuilder.WriteString("\n\n")
@@ -430,8 +427,8 @@ func (e *Engine) stripLearningTags(output string) string {
 	output = regexp.MustCompile(`\[LEARN:\s*[^\]]+\]`).ReplaceAllString(output, "")
 	output = regexp.MustCompile(`\[UNLEARN:\s*[^\]]+\]`).ReplaceAllString(output, "")
 	output = regexp.MustCompile(`(?s)\[UPDATE_CONTEXT:\s*.*?\]`).ReplaceAllString(output, "")
-	// Also strip bold headers that look like thinking/planning
-	output = regexp.MustCompile(`(?m)^\*\*.*?\*\*.*$`).ReplaceAllString(output, "")
+	// Aggressively strip any lines starting with markers or bold headers (reasoning/planning)
+	output = regexp.MustCompile(`(?m)^(\*\*|#|>|The latest user input|I'm creating|I'm preparing|I'll read|I'll parallel-read|I'll ask).*$`).ReplaceAllString(output, "")
 	return strings.TrimSpace(output)
 }
 

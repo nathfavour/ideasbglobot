@@ -28,15 +28,8 @@ func (p *VibeAuraProvider) Name() string {
 }
 
 func (p *VibeAuraProvider) Generate(prompt string, mode string) (string, error) {
-	// mode here can be "chat" or "agent"
+	// mode here is ignored for the prompt prefix to avoid triggering verbose 'Agent Mode' explanations
 	vibePrompt := prompt
-	if prompt != "" {
-		if mode == "chat" {
-			vibePrompt = "CONVERSATIONAL MODE: Provide a concise response. Minimal tools.\n\n" + prompt
-		} else if mode == "agent" {
-			vibePrompt = "AGENT MODE: Use tools to solve the request.\n\n" + prompt
-		}
-	}
 
 	args := []string{"direct", "--verbose=false"}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -55,14 +48,11 @@ func (p *VibeAuraProvider) Generate(prompt string, mode string) (string, error) 
 	res = strings.ReplaceAll(res, "--- VibeAuracle Direct REPL ---", "")
 	res = strings.ReplaceAll(res, "Type 'exit' to quit, 'clear' to clear screen.", "")
 	
-	// Remove thought markers like "> **Thinking...**" or "**Planning...**"
-	reThoughtMarkers := regexp.MustCompile(`(?m)^> \*\*.*?\*\*.*$`)
-	res = reThoughtMarkers.ReplaceAllString(res, "")
+	// AGGRESSIVE PRUNING: Remove ANY line that starts with bold text or markers (Thinking, Planning, etc.)
+	// This stops the 'The latest user input instructs...' or '**Planning...**' chatter.
+	reReasoning := regexp.MustCompile(`(?m)^(\*\*|#|> ).*$`)
+	res = reReasoning.ReplaceAllString(res, "")
 	
-	// Remove bold headers that look like internal reasoning
-	reBoldHeaders := regexp.MustCompile(`(?m)^\*\*.*?\*\*.*$`)
-	res = reBoldHeaders.ReplaceAllString(res, "")
-
 	// Remove empty prompts "> "
 	res = strings.ReplaceAll(res, "> ", "")
 
