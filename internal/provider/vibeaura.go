@@ -55,10 +55,14 @@ func (p *VibeAuraProvider) Generate(prompt string, mode string) (string, error) 
 	res = strings.ReplaceAll(res, "--- VibeAuracle Direct REPL ---", "")
 	res = strings.ReplaceAll(res, "Type 'exit' to quit, 'clear' to clear screen.", "")
 	
-	// Remove thought markers like "> **Thinking...**" but keep the text after them if it's not another marker
-	reThoughtMarkers := regexp.MustCompile(`(?m)^> \*\*.*?\*\*`)
+	// Remove thought markers like "> **Thinking...**" or "**Planning...**"
+	reThoughtMarkers := regexp.MustCompile(`(?m)^> \*\*.*?\*\*.*$`)
 	res = reThoughtMarkers.ReplaceAllString(res, "")
 	
+	// Remove bold headers that look like internal reasoning
+	reBoldHeaders := regexp.MustCompile(`(?m)^\*\*.*?\*\*.*$`)
+	res = reBoldHeaders.ReplaceAllString(res, "")
+
 	// Remove empty prompts "> "
 	res = strings.ReplaceAll(res, "> ", "")
 

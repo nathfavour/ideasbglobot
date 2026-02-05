@@ -118,6 +118,12 @@ func (e *Engine) HandleMessage(msg platform.IncomingMessage) error {
 		}
 	}
 
+	// Smart Filter: Should we respond to this message?
+	if !e.shouldRespond(msg) {
+		log.Printf("Ignoring message from %d: Not directed at bot.", msg.ChatID)
+		return nil
+	}
+
 	// Route based on mode
 	switch e.Mode {
 	case "shell":
@@ -183,6 +189,13 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 		
 		// Add System Instructions
 		contextBuilder.WriteString("### SYSTEM INSTRUCTIONS\n")
+		contextBuilder.WriteString("You are ideasbglobe, a founder-minded assistant. You are currently in a group chat with Benjamin and Nathaniel.\n")
+		contextBuilder.WriteString("STRICT SILENCE RULE:\n")
+		contextBuilder.WriteString("1. If the message is general chatter (e.g., 'Ok', 'Alright', 'Thanks'), output ONLY [IGNORE]. Do NOT acknowledge it.\n")
+		contextBuilder.WriteString("2. If you are using a tool, output ONLY the tool tag. NEVER explain what you are about to do or what you are thinking.\n")
+		contextBuilder.WriteString("3. NEVER output internal planning, bold headers like '**Planning...**', or status updates to the user.\n")
+		contextBuilder.WriteString("4. Your ONLY tools are: [READ_FILE], [LIST_FILES], [FETCH_URL], [GIT_STATUS], [LEARN], [TASK]. Do NOT attempt to use any other tags.\n")
+		contextBuilder.WriteString("\n")
 		contextBuilder.WriteString(e.Config.DefaultAIPrompt)
 		contextBuilder.WriteString("\n\n")
 
@@ -238,14 +251,16 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 		contextBuilder.WriteString("\n\n")
 		
 		contextBuilder.WriteString("### RESPONSE GUIDELINES\n")
-		contextBuilder.WriteString("You are in AGENT mode. You can use tools to gather information before giving a final answer.\n")
-		contextBuilder.WriteString("- [READ_FILE: path]: Read content of a file.\n")
-		contextBuilder.WriteString("- [LIST_FILES: path]: List files in a directory.\n")
-		contextBuilder.WriteString("- [FETCH_URL: url]: Fetch the content of a web page.\n")
-		contextBuilder.WriteString("- [GIT_STATUS]: Run git status in the current directory.\n")
-		contextBuilder.WriteString("- [LEARN: key=value]: Remember a fact.\n")
-		contextBuilder.WriteString("- [TASK: title | description | YYYY-MM-DD HH:MM]: Schedule a task.\n")
-		contextBuilder.WriteString("If you use a tool, do NOT provide a final answer yet. Just output the tool tag. If you have all information, provide the final answer.\n")
+		contextBuilder.WriteString("You are an AGENT. Gather info silently using tags. Provide ONLY the final answer.\n")
+		contextBuilder.WriteString("- [READ_FILE: path]\n")
+		contextBuilder.WriteString("- [LIST_FILES: path]\n")
+		contextBuilder.WriteString("- [FETCH_URL: url]\n")
+		contextBuilder.WriteString("- [GIT_STATUS]\n")
+		contextBuilder.WriteString("- [LEARN: key=value]\n")
+		contextBuilder.WriteString("- [TASK: title | description | YYYY-MM-DD HH:MM]\n")
+		contextBuilder.WriteString("\n")
+		contextBuilder.WriteString("NO CHATTER: If no response is strictly necessary or you're just acknowledging, use [IGNORE].\n")
+		contextBuilder.WriteString("NO REASONING: Do not tell the user what you are doing. Just do it.\n")
 
 		fullPrompt := contextBuilder.String()
 
@@ -318,22 +333,43 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 			hasTools = true
 		}
 
-		if !hasTools {
-			// Final response
-			e.processLearningTags(msg.ChatID, rawOutput)
-			e.processTaskTags(msg.ChatID, rawOutput)
-			cleanOutput := e.stripLearningTags(rawOutput)
-			cleanOutput = e.stripTaskTags(cleanOutput)
-			cleanOutput = regexp.MustCompile(`\[READ_FILE:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
-			cleanOutput = regexp.MustCompile(`\[LIST_FILES:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
-			cleanOutput = regexp.MustCompile(`\[FETCH_URL:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
-			cleanOutput = strings.ReplaceAll(cleanOutput, "[GIT_STATUS]", "")
-			
-			if cleanOutput == "" {
-				cleanOutput = "_No response content produced by AI._"
-			}
-			return e.replyHTML(msg, e.escapeHTML(cleanOutput))
-		}
+				if !hasTools {
+
+					// Final response
+
+					e.processLearningTags(msg.ChatID, rawOutput)
+
+					e.processTaskTags(msg.ChatID, rawOutput)
+
+					cleanOutput := e.stripLearningTags(rawOutput)
+
+					cleanOutput = e.stripTaskTags(cleanOutput)
+
+					cleanOutput = regexp.MustCompile(`\[READ_FILE:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
+
+					cleanOutput = regexp.MustCompile(`\[LIST_FILES:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
+
+					cleanOutput = regexp.MustCompile(`\[FETCH_URL:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
+
+					cleanOutput = strings.ReplaceAll(cleanOutput, "[GIT_STATUS]", "")
+
+					
+
+					if strings.Contains(cleanOutput, "[IGNORE]") || strings.TrimSpace(cleanOutput) == "" {
+
+						log.Printf("AI requested to ignore or produced no text. Remaining silent.")
+
+						return nil
+
+					}
+
+		
+
+					return e.replyHTML(msg, e.escapeHTML(cleanOutput))
+
+				}
+
+		
 		
 		// If it has tools, loop again with tool results
 		log.Printf("Tool used, entering turn %d", turn+1)
@@ -394,6 +430,8 @@ func (e *Engine) stripLearningTags(output string) string {
 	output = regexp.MustCompile(`\[LEARN:\s*[^\]]+\]`).ReplaceAllString(output, "")
 	output = regexp.MustCompile(`\[UNLEARN:\s*[^\]]+\]`).ReplaceAllString(output, "")
 	output = regexp.MustCompile(`(?s)\[UPDATE_CONTEXT:\s*.*?\]`).ReplaceAllString(output, "")
+	// Also strip bold headers that look like thinking/planning
+	output = regexp.MustCompile(`(?m)^\*\*.*?\*\*.*$`).ReplaceAllString(output, "")
 	return strings.TrimSpace(output)
 }
 
@@ -494,8 +532,33 @@ func (e *Engine) shouldTriggerAI(msg platform.IncomingMessage) bool {
 }
 
 func (e *Engine) shouldRespond(msg platform.IncomingMessage) bool {
-	lower := strings.ToLower(msg.Text)
-	return strings.Contains(lower, "@bot") || msg.ChatID > 0 || strings.Contains(lower, "?")
+	// Private Chat: Always respond
+	if msg.ChatID > 0 {
+		return true
+	}
+
+	// Commands: Always respond (they start with /)
+	if msg.IsCommand {
+		return true
+	}
+
+	// Mentions: Always respond if specifically tagged
+	if msg.IsMentioned {
+		return true
+	}
+
+	// Replies: Respond ONLY if replying directly to the bot's own message
+	if msg.IsReplyToBot {
+		// Even if it's a reply, if the text is too short (like "alright", "ok", "thx"), 
+		// maybe we should still be cautious. But for now, direct replies are usually intentional.
+		lower := strings.ToLower(strings.TrimSpace(msg.Text))
+		if len(lower) < 3 && lower != "hi" && lower != "no" && lower != "ok" {
+			return false
+		}
+		return true
+	}
+	
+	return false
 }
 
 func (e *Engine) getSmartReply(text string, msgType string) (string, error) {

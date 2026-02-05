@@ -1,16 +1,18 @@
 package platform
 
 type IncomingMessage struct {
-	Platform  string
-	ChatID    int64
-	UserID    int64
-	Username  string
-	Text      string
-	IsBot     bool
-	IsCommand bool
-	Command   string
-	Args      string
-	Raw       interface{}
+	Platform     string
+	ChatID       int64
+	UserID       int64
+	Username     string
+	Text         string
+	IsBot        bool
+	IsCommand    bool
+	IsMentioned  bool
+	IsReplyToBot bool // Added field
+	Command      string
+	Args         string
+	Raw          interface{}
 }
 
 type OutgoingMessage struct {

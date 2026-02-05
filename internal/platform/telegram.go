@@ -3,6 +3,7 @@ package platform
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -48,15 +49,22 @@ func (p *TelegramPlatform) Listen(handler func(IncomingMessage) error) error {
 				username = update.Message.From.FirstName
 			}
 
+			isReplyToBot := false
+			if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.From != nil {
+				isReplyToBot = update.Message.ReplyToMessage.From.ID == p.bot.Self.ID
+			}
+
 			msg := IncomingMessage{
-				Platform:  "telegram",
-				ChatID:    update.Message.Chat.ID,
-				UserID:    update.Message.From.ID,
-				Username:  username,
-				Text:      update.Message.Text,
-				IsBot:     update.Message.From.IsBot,
-				IsCommand: update.Message.IsCommand(),
-				Raw:       update,
+				Platform:     "telegram",
+				ChatID:       update.Message.Chat.ID,
+				UserID:       update.Message.From.ID,
+				Username:     username,
+				Text:         update.Message.Text,
+				IsBot:        update.Message.From.IsBot,
+				IsCommand:    update.Message.IsCommand(),
+				IsMentioned:  strings.Contains(update.Message.Text, "@"+p.bot.Self.UserName),
+				IsReplyToBot: isReplyToBot,
+				Raw:          update,
 			}
 
 			if msg.IsCommand {
