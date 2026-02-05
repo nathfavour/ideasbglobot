@@ -134,3 +134,28 @@ func GetChatHistory(chatID int64, limit int) ([]Message, error) {
 	}
 	return history, nil
 }
+
+func SearchMessages(chatID int64, query string, limit int) ([]Message, error) {
+	// Simple keyword-based search
+	rows, err := DB.Query(`
+		SELECT id, chat_id, user_id, username, text, is_bot, type, created 
+		FROM messages 
+		WHERE chat_id = ? AND text LIKE ? 
+		ORDER BY created DESC 
+		LIMIT ?`, chatID, "%"+query+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var history []Message
+	for rows.Next() {
+		var m Message
+		err := rows.Scan(&m.ID, &m.ChatID, &m.UserID, &m.Username, &m.Text, &m.IsBot, &m.Type, &m.Created)
+		if err != nil {
+			return nil, err
+		}
+		history = append(history, m)
+	}
+	return history, nil
+}

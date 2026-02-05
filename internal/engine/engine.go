@@ -2,7 +2,10 @@ package engine
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -171,72 +174,172 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 	// Remove /ai prefix if present
 	prompt = regexp.MustCompile(`(?i)^/ai\s*`).ReplaceAllString(prompt, "")
 
-	// 1. Build Context
-	var contextBuilder strings.Builder
-	
-	// Add System Instructions
-	contextBuilder.WriteString("### SYSTEM INSTRUCTIONS\n")
-	contextBuilder.WriteString(e.Config.DefaultAIPrompt)
-	contextBuilder.WriteString("\n\n")
+	var toolOutputs []string
+	maxTurns := 3
 
-	// Add Persistent Context and Learned Facts
-	ctxData, _ := internal.FormatContextForPrompt(msg.ChatID)
-	contextBuilder.WriteString(ctxData)
+	for turn := 0; turn < maxTurns; turn++ {
+		// 1. Build Context
+		var contextBuilder strings.Builder
+		
+		// Add System Instructions
+		contextBuilder.WriteString("### SYSTEM INSTRUCTIONS\n")
+		contextBuilder.WriteString(e.Config.DefaultAIPrompt)
+		contextBuilder.WriteString("\n\n")
 
-	// Add Recent Conversation History
-	history, err := internal.GetChatHistory(msg.ChatID, 15)
-	if err == nil && len(history) > 0 {
-		contextBuilder.WriteString("### RECENT CONVERSATION HISTORY\n")
-		for _, m := range history {
-			role := "User"
-			if m.IsBot {
-				role = "Assistant"
+		// Add Persistent Context and Learned Facts
+		ctxData, _ := internal.FormatContextForPrompt(msg.ChatID)
+		contextBuilder.WriteString(ctxData)
+
+		// Add Semantic Memory (Relevant Past Messages)
+		// Extract keywords from prompt (simple split)
+		keywords := strings.Fields(prompt)
+		if len(keywords) > 0 {
+			relevant, _ := internal.SearchMessages(msg.ChatID, keywords[0], 5)
+			if len(relevant) > 0 {
+				contextBuilder.WriteString("### RELEVANT PAST MESSAGES\n")
+				for _, m := range relevant {
+					role := "User"
+					if m.IsBot {
+						role = "Assistant"
+					}
+					contextBuilder.WriteString(fmt.Sprintf("%s: %s\n", role, m.Text))
+				}
+				contextBuilder.WriteString("\n")
 			}
-			// Avoid duplicating the current message if it was already saved
-			if m.Text == msg.Text && !m.IsBot {
-				continue
-			}
-			contextBuilder.WriteString(fmt.Sprintf("%s: %s\n", role, m.Text))
 		}
-		contextBuilder.WriteString("\n")
+
+		// Add Recent Conversation History
+		history, err := internal.GetChatHistory(msg.ChatID, 10)
+		if err == nil && len(history) > 0 {
+			contextBuilder.WriteString("### RECENT CONVERSATION HISTORY\n")
+			for _, m := range history {
+				role := "User"
+				if m.IsBot {
+					role = "Assistant"
+				}
+				if m.Text == msg.Text && !m.IsBot {
+					continue
+				}
+				contextBuilder.WriteString(fmt.Sprintf("%s: %s\n", role, m.Text))
+			}
+			contextBuilder.WriteString("\n")
+		}
+
+		if len(toolOutputs) > 0 {
+			contextBuilder.WriteString("### TOOL OUTPUTS\n")
+			for _, out := range toolOutputs {
+				contextBuilder.WriteString(out + "\n")
+			}
+			contextBuilder.WriteString("\n")
+		}
+
+		contextBuilder.WriteString("### NEW USER INPUT\n")
+		contextBuilder.WriteString(prompt)
+		contextBuilder.WriteString("\n\n")
+		
+		contextBuilder.WriteString("### RESPONSE GUIDELINES\n")
+		contextBuilder.WriteString("You are in AGENT mode. You can use tools to gather information before giving a final answer.\n")
+		contextBuilder.WriteString("- [READ_FILE: path]: Read content of a file.\n")
+		contextBuilder.WriteString("- [LIST_FILES: path]: List files in a directory.\n")
+		contextBuilder.WriteString("- [FETCH_URL: url]: Fetch the content of a web page.\n")
+		contextBuilder.WriteString("- [GIT_STATUS]: Run git status in the current directory.\n")
+		contextBuilder.WriteString("- [LEARN: key=value]: Remember a fact.\n")
+		contextBuilder.WriteString("- [TASK: title | description | YYYY-MM-DD HH:MM]: Schedule a task.\n")
+		contextBuilder.WriteString("If you use a tool, do NOT provide a final answer yet. Just output the tool tag. If you have all information, provide the final answer.\n")
+
+		fullPrompt := contextBuilder.String()
+
+		rawOutput, err := e.AI.Generate(fullPrompt, e.Mode)
+		if err != nil {
+			return e.replyHTML(msg, fmt.Sprintf("<b>⚠️ Error</b>\n<pre>%s</pre>", e.escapeHTML(err.Error())))
+		}
+
+		// Check for tools
+		hasTools := false
+		
+		// Process READ_FILE
+		readFileRegex := regexp.MustCompile(`\[READ_FILE:\s*([^\]]+)\]`)
+		if match := readFileRegex.FindStringSubmatch(rawOutput); len(match) > 1 {
+			path := strings.TrimSpace(match[1])
+			content, err := os.ReadFile(path)
+			if err != nil {
+				toolOutputs = append(toolOutputs, fmt.Sprintf("[TOOL_ERROR: READ_FILE %s: %v]", path, err))
+			} else {
+				toolOutputs = append(toolOutputs, fmt.Sprintf("[TOOL_OUTPUT: READ_FILE %s]\n%s", path, string(content)))
+			}
+			hasTools = true
+		}
+
+		// Process LIST_FILES
+		listFilesRegex := regexp.MustCompile(`\[LIST_FILES:\s*([^\]]+)\]`)
+		if match := listFilesRegex.FindStringSubmatch(rawOutput); len(match) > 1 {
+			path := strings.TrimSpace(match[1])
+			files, err := os.ReadDir(path)
+			if err != nil {
+				toolOutputs = append(toolOutputs, fmt.Sprintf("[TOOL_ERROR: LIST_FILES %s: %v]", path, err))
+			} else {
+				var fileList []string
+				for _, f := range files {
+					fileList = append(fileList, f.Name())
+				}
+				toolOutputs = append(toolOutputs, fmt.Sprintf("[TOOL_OUTPUT: LIST_FILES %s]\n%s", path, strings.Join(fileList, ", ")))
+			}
+			hasTools = true
+		}
+
+		// Process FETCH_URL
+		fetchUrlRegex := regexp.MustCompile(`\[FETCH_URL:\s*([^\]]+)\]`)
+		if match := fetchUrlRegex.FindStringSubmatch(rawOutput); len(match) > 1 {
+			url := strings.TrimSpace(match[1])
+			resp, err := http.Get(url)
+			if err != nil {
+				toolOutputs = append(toolOutputs, fmt.Sprintf("[TOOL_ERROR: FETCH_URL %s: %v]", url, err))
+			} else {
+				defer resp.Body.Close()
+				body, _ := io.ReadAll(resp.Body)
+				// Limit output to avoid token bloat
+				content := string(body)
+				if len(content) > 2000 {
+					content = content[:2000] + "... (truncated)"
+				}
+				toolOutputs = append(toolOutputs, fmt.Sprintf("[TOOL_OUTPUT: FETCH_URL %s]\n%s", url, content))
+			}
+			hasTools = true
+		}
+
+		// Process GIT_STATUS
+		if strings.Contains(rawOutput, "[GIT_STATUS]") {
+			out, err := e.runShellCommand("git status")
+			if err != nil {
+				toolOutputs = append(toolOutputs, fmt.Sprintf("[TOOL_ERROR: GIT_STATUS: %v]", err))
+			} else {
+				toolOutputs = append(toolOutputs, fmt.Sprintf("[TOOL_OUTPUT: GIT_STATUS]\n%s", out))
+			}
+			hasTools = true
+		}
+
+		if !hasTools {
+			// Final response
+			e.processLearningTags(msg.ChatID, rawOutput)
+			e.processTaskTags(msg.ChatID, rawOutput)
+			cleanOutput := e.stripLearningTags(rawOutput)
+			cleanOutput = e.stripTaskTags(cleanOutput)
+			cleanOutput = regexp.MustCompile(`\[READ_FILE:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
+			cleanOutput = regexp.MustCompile(`\[LIST_FILES:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
+			cleanOutput = regexp.MustCompile(`\[FETCH_URL:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
+			cleanOutput = strings.ReplaceAll(cleanOutput, "[GIT_STATUS]", "")
+			
+			if cleanOutput == "" {
+				cleanOutput = "_No response content produced by AI._"
+			}
+			return e.replyHTML(msg, e.escapeHTML(cleanOutput))
+		}
+		
+		// If it has tools, loop again with tool results
+		log.Printf("Tool used, entering turn %d", turn+1)
 	}
 
-	contextBuilder.WriteString("### NEW USER INPUT\n")
-	contextBuilder.WriteString(prompt)
-	contextBuilder.WriteString("\n\n")
-	
-	contextBuilder.WriteString("### RESPONSE GUIDELINES\n")
-	contextBuilder.WriteString("If you learned something new and important about the user or the context, you can suggest a 'FACT' to be remembered in the format: [LEARN: key=value].\n")
-	contextBuilder.WriteString("If something previously learned is no longer true, use: [UNLEARN: key].\n")
-	contextBuilder.WriteString("If you want to update the global CONTEXT.md, use: [UPDATE_CONTEXT: new content].\n")
-	contextBuilder.WriteString("If you need to schedule a task or reminder, use: [TASK: title | description | YYYY-MM-DD HH:MM].\n")
-	contextBuilder.WriteString("Provide your normal response first, then any learning/task tags at the end.\n")
-
-	fullPrompt := contextBuilder.String()
-
-	log.Printf("Generating AI response for chat %d using mode %s", msg.ChatID, e.Mode)
-	rawOutput, err := e.AI.Generate(fullPrompt, e.Mode)
-	if err != nil {
-		log.Printf("AI Generation error for chat %d: %v", msg.ChatID, err)
-		return e.replyHTML(msg, fmt.Sprintf("<b>⚠️ Error</b>\n<pre>%s</pre>", e.escapeHTML(err.Error())))
-	}
-
-	log.Printf("AI response generated for chat %d (%d bytes)", msg.ChatID, len(rawOutput))
-	log.Printf("DEBUG: Raw AI Output:\n---\n%s\n---", rawOutput)
-
-	// 2. Extract Tags
-	e.processLearningTags(msg.ChatID, rawOutput)
-	e.processTaskTags(msg.ChatID, rawOutput)
-
-	// 3. Clean output for user
-	cleanOutput := e.stripLearningTags(rawOutput)
-	cleanOutput = e.stripTaskTags(cleanOutput)
-
-	if cleanOutput == "" {
-		cleanOutput = "_No response content produced by AI._"
-	}
-
-	return e.replyHTML(msg, e.escapeHTML(cleanOutput))
+	return e.reply(msg, "Max turns reached without final answer.")
 }
 
 func (e *Engine) processLearningTags(chatID int64, output string) {
