@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/nathfavour/ideasbglobot/cmd"
 	"github.com/nathfavour/ideasbglobot/internal"
@@ -56,7 +57,19 @@ func main() {
 			}
 
 			// Initialize New Modular Architecture
-			aiProvider := provider.NewVibeAuraProvider("")
+			var aiProvider provider.AIProvider
+			
+			// Try IPC first (faster, cleaner)
+			home, _ := os.UserHomeDir()
+			socketPath := filepath.Join(home, ".vibeauracle/vibeaura.sock")
+			if _, err := os.Stat(socketPath); err == nil {
+				log.Println("Using VibeAura IPC Provider (Socket)")
+				aiProvider = provider.NewVibeAuraIPCProvider(socketPath)
+			} else {
+				log.Println("Using VibeAura CLI Provider (Fallback)")
+				aiProvider = provider.NewVibeAuraProvider("")
+			}
+
 			eng := engine.NewEngine(cfg, aiProvider)
 
 			// Setup Telegram Platform if token exists
