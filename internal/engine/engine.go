@@ -251,7 +251,8 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 		contextBuilder.WriteString("You are an AGENT. Gather info silently using tags. Provide ONLY the final answer.\n")
 		contextBuilder.WriteString("- [READ_FILE: path]\n")
 		contextBuilder.WriteString("- [LIST_FILES: path]\n")
-		contextBuilder.WriteString("- [FETCH_URL: url]\n")
+		contextBuilder.WriteString("- [FETCH_URL: url]: Fetch website content for summarization or research.\n")
+		contextBuilder.WriteString("- [WHOIS: domain]: Check domain availability and registration details.\n")
 		contextBuilder.WriteString("- [GIT_STATUS]\n")
 		contextBuilder.WriteString("- [LEARN: key=value]\n")
 		contextBuilder.WriteString("- [TASK: title | description | YYYY-MM-DD HH:MM]\n")
@@ -330,24 +331,35 @@ func (e *Engine) handleAI(msg platform.IncomingMessage, msgType string) error {
 			hasTools = true
 		}
 
+		// Process WHOIS
+		whoisRegex := regexp.MustCompile(`\[WHOIS:\s*([^\]]+)\]`)
+		if match := whoisRegex.FindStringSubmatch(rawOutput); len(match) > 1 {
+			domain := strings.TrimSpace(match[1])
+			out, err := e.runShellCommand(fmt.Sprintf("whois %s", domain))
+			if err != nil {
+				toolOutputs = append(toolOutputs, fmt.Sprintf("[TOOL_ERROR: WHOIS %s: %v]", domain, err))
+			} else {
+				// Filter WHOIS output to avoid bloat (usually first 1000 chars is enough)
+				content := out
+				if len(content) > 1500 {
+					content = content[:1500] + "... (truncated)"
+				}
+				toolOutputs = append(toolOutputs, fmt.Sprintf("[TOOL_OUTPUT: WHOIS %s]\n%s", domain, content))
+			}
+			hasTools = true
+		}
+
 				if !hasTools {
-
 					// Final response
-
 					e.processLearningTags(msg.ChatID, rawOutput)
-
 					e.processTaskTags(msg.ChatID, rawOutput)
 
 					cleanOutput := e.stripLearningTags(rawOutput)
-
 					cleanOutput = e.stripTaskTags(cleanOutput)
-
 					cleanOutput = regexp.MustCompile(`\[READ_FILE:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
-
 					cleanOutput = regexp.MustCompile(`\[LIST_FILES:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
-
 					cleanOutput = regexp.MustCompile(`\[FETCH_URL:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
-
+					cleanOutput = regexp.MustCompile(`\[WHOIS:\s*[^\]]+\]`).ReplaceAllString(cleanOutput, "")
 					cleanOutput = strings.ReplaceAll(cleanOutput, "[GIT_STATUS]", "")
 
 					
